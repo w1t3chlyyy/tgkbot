@@ -2,32 +2,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import { ROOT } from './config.js';
-import { OBJECTS, OBJECTS3D, STYLES, WORDS } from './prompts.js';
+import { OBJECTS, STYLES, WORDS } from './prompts.js';
 
 const FONT_DIR = path.join(ROOT, 'assets', 'fonts');
-const IMG_DIR = path.join(ROOT, 'assets', '3d');
 const fontFiles = fs.readdirSync(FONT_DIR).filter((f) => f.endsWith('.ttf')).map((f) => path.join(FONT_DIR, f));
-const imgCache = new Map();
+// Если положить Inter-Bold.ttf / Inter-SemiBold.ttf в assets/fonts, он подхватится сам; иначе работает Montserrat.
+const FONT = 'Inter, Montserrat';
 
-// Палитра бренда: только синий, белый и чёрный
+const BLACK = '#0b0b0f';
 const BLUE = '#2447e6';
-const INK = '#0b0b0f';
-const PAL = {
-  light: { ink: INK, acc: BLUE, bg: '#e4e7ec' },
-  dark: { ink: '#ffffff', acc: BLUE, bg: '#08090c' },
-  blue: { ink: '#ffffff', acc: INK, bg: BLUE },
-};
-const TONE = {
-  light: { ink: INK, card: '#ffffff', line: '#c3c8d0' },
-  dark: { ink: '#ffffff', card: '#121318', line: '#2a2d36' },
+
+// layout "light" = фирменный синий фон (основной), "dark" = тёмный с синим свечением.
+// Акцент на синем фоне чёрный; на тёмном фоне чёрный не виден, поэтому там акцент синий.
+const TONES = {
+  light: { pal: { ink: '#ffffff', acc: BLACK, bg: '#dbe3ff' }, tag: { fill: BLACK, color: '#ffffff' }, num: BLACK, glass: [0.38, 0.14, 0.55] },
+  dark: { pal: { ink: '#ffffff', acc: '#2f56ff', bg: BLACK }, tag: { fill: BLUE, color: '#ffffff' }, num: BLUE, glass: [0.2, 0.07, 0.4] },
 };
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export function normalizeBanner(b = {}, fallback = {}) {
-  const x = { layout: 'light', object: 'star', word: 'hustlify', headline: '', pill: '', link: '', style: '', points: [], ...fallback, ...b };
+  const x = { layout: 'light', object: 'case', word: 'hustlify', headline: '', pill: '', link: '', style: '', points: [], ...fallback, ...b };
   if (!['light', 'dark'].includes(x.layout)) x.layout = 'light';
-  if (!OBJECTS[x.object]) x.object = 'star';
+  if (!OBJECTS[x.object]) x.object = 'case';
   if (!WORDS[x.word]) x.word = 'hustlify';
   if (!STYLES[x.style]) x.style = '';
   x.points = (Array.isArray(x.points) ? x.points : []).map((p) => String(p ?? '').trim().slice(0, 34)).filter(Boolean).slice(0, 3);
@@ -37,11 +34,38 @@ export function normalizeBanner(b = {}, fallback = {}) {
   return x;
 }
 
-function asset(object, word) {
-  const file = path.join(IMG_DIR, `${object}_${WORDS[word]}.png`);
-  const key = fs.existsSync(file) ? file : path.join(IMG_DIR, 'star_hustlify.png');
-  if (!imgCache.has(key)) imgCache.set(key, 'data:image/png;base64,' + fs.readFileSync(key).toString('base64'));
-  return imgCache.get(key);
+/* ── логотип: assets/logo.svg или assets/logo.png (белая версия, под синий и тёмный фон) ── */
+let logoCache;
+function logoInfo() {
+  if (logoCache !== undefined) return logoCache;
+  logoCache = null;
+  for (const name of ['logo.svg', 'logo.png']) {
+    const file = path.join(ROOT, 'assets', name);
+    if (!fs.existsSync(file)) continue;
+    try {
+      const buf = fs.readFileSync(file);
+      let w, h, mime;
+      if (name.endsWith('.png')) { w = buf.readUInt32BE(16); h = buf.readUInt32BE(20); mime = 'image/png'; }
+      else {
+        const s = buf.toString('utf8');
+        const vb = s.match(/viewBox\s*=\s*"([^"]+)"/i);
+        if (vb) { const n = vb[1].trim().split(/[\s,]+/).map(Number); w = n[2]; h = n[3]; }
+        else { w = parseFloat(s.match(/<svg[^>]*\swidth\s*=\s*"([\d.]+)/i)?.[1]); h = parseFloat(s.match(/<svg[^>]*\sheight\s*=\s*"([\d.]+)/i)?.[1]); }
+        mime = 'image/svg+xml';
+      }
+      if (w > 0 && h > 0) { logoCache = { href: `data:${mime};base64,${buf.toString('base64')}`, ratio: w / h }; break; }
+    } catch (e) { console.warn('[logo]', e.message); }
+  }
+  return logoCache;
+}
+function logo() {
+  const l = logoInfo();
+  if (!l) {
+    return `<text x="96" y="104" font-family="${FONT}" font-size="36" fill="#fff" letter-spacing="1"><tspan font-weight="700">HUSTLI</tspan><tspan font-weight="400">FY</tspan></text>`;
+  }
+  let h = l.ratio < 1.5 ? 68 : 52, w = h * l.ratio; // квадратный знак крупнее, широкий логотип ниже
+  if (w > 340) { w = 340; h = w / l.ratio; }
+  return `<image xlink:href="${l.href}" x="96" y="${Math.round(82 - h / 2)}" width="${Math.round(w)}" height="${Math.round(h)}"/>`;
 }
 
 /** Переносит заголовок на строки: уважает \n, иначе делит по пробелу ближе к середине. */
@@ -59,14 +83,14 @@ export function wrapHeadline(text, maxChars = 18) {
   }
   return lines.slice(0, 3);
 }
-const fit = (lines, maxW, maxSize, k = 0.66) => Math.max(34, Math.min(maxSize, Math.floor(maxW / (Math.max(...lines.map((l) => [...l].length)) * k))));
-const pillW = (t, size) => Math.round([...t].length * size * 0.62 + 64);
+const fit = (lines, maxW, maxSize, k = 0.64) => Math.max(34, Math.min(maxSize, Math.floor(maxW / (Math.max(...lines.map((l) => [...l].length)) * k))));
 
-function logo(fill) {
-  return `<text x="96" y="104" font-family="Montserrat" font-size="40" fill="${fill}" letter-spacing="1"><tspan font-weight="700">HUSTLI</tspan><tspan font-weight="500">FY</tspan></text>`;
-}
+/* ── иконки: квадрат 200×200, палитра p = {ink, acc, bg} ── */
+const starPts = (cx, cy, R, r) => Array.from({ length: 10 }, (_, i) => {
+  const a = -Math.PI / 2 + (i * Math.PI) / 5, d = i % 2 ? r : R;
+  return `${(cx + Math.cos(a) * d).toFixed(1)},${(cy + Math.sin(a) * d).toFixed(1)}`;
+}).join(' ');
 
-/* ── смысловые иконки: рисуются в квадрате 200×200 тремя цветами палитры p = {ink, acc, bg} ── */
 const DRAW = {
   gift: (p) => `<rect x="26" y="70" width="148" height="40" rx="10" fill="${p.ink}"/><rect x="38" y="110" width="124" height="74" rx="10" fill="${p.acc}"/><rect x="90" y="70" width="20" height="114" fill="${p.bg}"/><ellipse cx="70" cy="52" rx="30" ry="18" transform="rotate(-24 70 52)" fill="${p.ink}"/><ellipse cx="130" cy="52" rx="30" ry="18" transform="rotate(24 130 52)" fill="${p.ink}"/><circle cx="100" cy="62" r="12" fill="${p.acc}"/>`,
   gem: (p) => `<path d="M58 40 H142 L184 92 L100 178 L16 92 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="6" stroke-linejoin="round"/><path d="M16 92 H184 M58 40 L78 92 L100 178 M142 40 L122 92 L100 178" fill="none" stroke="${p.bg}" stroke-width="7" stroke-linejoin="round"/><path d="M78 92 L100 40 L122 92" fill="none" stroke="${p.acc}" stroke-width="9" stroke-linejoin="round"/>`,
@@ -79,201 +103,142 @@ const DRAW = {
   shield: (p) => `<path d="M100 14 L170 42 V96 C170 140 140 168 100 188 C60 168 30 140 30 96 V42 Z" fill="${p.ink}"/><path d="M66 100 L90 124 L136 74" fill="none" stroke="${p.acc}" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>`,
   chart: (p) => `<rect x="22" y="120" width="34" height="56" rx="8" fill="${p.ink}"/><rect x="68" y="92" width="34" height="84" rx="8" fill="${p.ink}"/><rect x="114" y="62" width="34" height="114" rx="8" fill="${p.ink}"/><path d="M24 78 L76 46 L104 62 L158 26" fill="none" stroke="${p.acc}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M168 14 L184 56 L140 40 Z" fill="${p.acc}"/>`,
   trophy: (p) => `<path d="M54 28 H146 V92 C146 124 126 142 100 142 C74 142 54 124 54 92 Z" fill="${p.ink}"/><path d="M54 44 H28 C28 84 42 100 64 104" fill="none" stroke="${p.ink}" stroke-width="10" stroke-linecap="round"/><path d="M146 44 H172 C172 84 158 100 136 104" fill="none" stroke="${p.ink}" stroke-width="10" stroke-linecap="round"/><rect x="90" y="140" width="20" height="26" fill="${p.ink}"/><rect x="60" y="164" width="80" height="20" rx="8" fill="${p.acc}"/><circle cx="100" cy="78" r="16" fill="${p.acc}"/>`,
-  bear: (p) => `<circle cx="50" cy="54" r="26" fill="${p.ink}"/><circle cx="150" cy="54" r="26" fill="${p.ink}"/><circle cx="50" cy="54" r="12" fill="${p.acc}"/><circle cx="150" cy="54" r="12" fill="${p.acc}"/><circle cx="100" cy="106" r="66" fill="${p.ink}"/><ellipse cx="100" cy="128" rx="30" ry="23" fill="${p.acc}"/><ellipse cx="100" cy="118" rx="10" ry="7" fill="${p.ink}"/><path d="M100 125 V136 M88 143 Q100 151 112 143" fill="none" stroke="${p.ink}" stroke-width="5" stroke-linecap="round"/><circle cx="76" cy="94" r="8" fill="${p.bg}"/><circle cx="124" cy="94" r="8" fill="${p.bg}"/>`,
+  bear: (p) => `<circle cx="50" cy="54" r="26" fill="${p.ink}"/><circle cx="150" cy="54" r="26" fill="${p.ink}"/><circle cx="50" cy="54" r="12" fill="${p.acc}"/><circle cx="150" cy="54" r="12" fill="${p.acc}"/><circle cx="100" cy="106" r="66" fill="${p.ink}"/><ellipse cx="100" cy="128" rx="30" ry="23" fill="${p.acc}"/><ellipse cx="100" cy="118" rx="10" ry="7" fill="${p.ink}"/><path d="M100 125 V136 M88 143 Q100 151 112 143" fill="none" stroke="${p.ink}" stroke-width="5" stroke-linecap="round"/><circle cx="76" cy="94" r="8" fill="${BLACK}"/><circle cx="124" cy="94" r="8" fill="${BLACK}"/>`,
   check: (p) => `<circle cx="100" cy="100" r="84" fill="${p.ink}"/><path d="M60 102 L88 130 L142 70" fill="none" stroke="${p.acc}" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>`,
-  tag: (p) => `<path d="M30 30 H110 L178 98 Q186 106 178 114 L114 178 Q106 186 98 178 L30 110 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="6" stroke-linejoin="round"/><circle cx="66" cy="66" r="12" fill="${p.bg}"/><text x="112" y="124" font-family="Unbounded" font-weight="700" font-size="64" text-anchor="middle" fill="${p.acc}">%</text>`,
+  tag: (p) => `<path d="M30 30 H110 L178 98 Q186 106 178 114 L114 178 Q106 186 98 178 L30 110 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="6" stroke-linejoin="round"/><circle cx="66" cy="66" r="12" fill="${p.bg}"/><text x="112" y="124" font-family="${FONT}" font-weight="700" font-size="64" text-anchor="middle" fill="${p.acc}">%</text>`,
   app: (p) => `<rect x="56" y="12" width="88" height="176" rx="20" fill="${p.ink}"/><rect x="66" y="34" width="68" height="118" rx="8" fill="${p.acc}"/><rect x="88" y="19" width="24" height="5" rx="2.5" fill="${p.bg}"/><circle cx="100" cy="170" r="7" fill="${p.bg}"/><rect x="76" y="50" width="48" height="10" rx="5" fill="${p.ink}"/><rect x="76" y="70" width="34" height="10" rx="5" fill="${p.ink}" opacity=".7"/>`,
   team: (p) => `<circle cx="72" cy="66" r="28" fill="${p.ink}"/><path d="M20 172 C20 120 124 120 124 172 Z" fill="${p.ink}"/><circle cx="140" cy="78" r="23" fill="${p.acc}"/><path d="M106 174 C106 134 184 134 184 174 Z" fill="${p.acc}"/>`,
+  star: (p) => `<polygon points="${starPts(100, 106, 88, 40)}" fill="${p.ink}" stroke="${p.ink}" stroke-width="14" stroke-linejoin="round"/>`,
+  crown: (p) => `<path d="M22 150 L14 62 L62 102 L100 42 L138 102 L186 62 L178 150 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="8" stroke-linejoin="round"/><rect x="24" y="158" width="152" height="24" rx="9" fill="${p.acc}"/><circle cx="14" cy="60" r="12" fill="${p.ink}"/><circle cx="100" cy="38" r="12" fill="${p.ink}"/><circle cx="186" cy="60" r="12" fill="${p.ink}"/><circle cx="100" cy="122" r="13" fill="${p.acc}"/>`,
+  globe: (p) => `<circle cx="100" cy="100" r="84" fill="none" stroke="${p.ink}" stroke-width="16"/><ellipse cx="100" cy="100" rx="38" ry="84" fill="none" stroke="${p.ink}" stroke-width="14"/><path d="M16 100 H184 M30 58 H170 M30 142 H170" fill="none" stroke="${p.ink}" stroke-width="12"/>`,
 };
 
-/** Главный визуал баннера по центру (cx, cy): 3D-картинка из библиотеки или векторная иконка. */
-function visual(b, cx, cy, box, pal, k3d = 1) {
-  if (OBJECTS3D[b.object]) {
-    const s = Math.round(box * k3d);
-    return `<image xlink:href="${asset(b.object, b.word)}" x="${Math.round(cx - s / 2)}" y="${Math.round(cy - s / 2)}" width="${s}" height="${s}"/>`;
-  }
-  const s = box * 0.7;
-  return `<g transform="translate(${Math.round(cx - s / 2)} ${Math.round(cy - s / 2)}) scale(${(s / 200).toFixed(4)})">${(DRAW[b.object] || DRAW.check)(pal)}</g>`;
+/** Иконка по центру (cx, cy) в квадрате size×size; большие размеры обрезаются краем кадра — так и задумано. */
+function visual(b, cx, cy, size, pal, opacity = 1) {
+  const draw = DRAW[b.object] || DRAW.case;
+  return `<g transform="translate(${Math.round(cx - size / 2)} ${Math.round(cy - size / 2)}) scale(${(size / 200).toFixed(4)})"${opacity < 1 ? ` opacity="${opacity}"` : ''}>${draw(pal)}</g>`;
 }
 
 /* ── общие элементы ── */
-const PANEL_DEFS = `<defs><linearGradient id="pb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a63f5"/><stop offset="1" stop-color="#1a2fd0"/></linearGradient></defs>`;
-
-function bgLayer(tone) {
+function backdrop(tone) {
+  const t = TONES[tone];
+  const glass = `<linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${t.glass[0]}"/><stop offset="1" stop-color="#fff" stop-opacity="${t.glass[1]}"/></linearGradient>`;
   if (tone === 'dark') {
-    return `<defs><radialGradient id="g1" cx="50%" cy="95%" r="65%"><stop offset="0" stop-color="${BLUE}" stop-opacity=".6"/><stop offset="1" stop-color="${BLUE}" stop-opacity="0"/></radialGradient><radialGradient id="g2" cx="12%" cy="10%" r="45%"><stop offset="0" stop-color="${BLUE}" stop-opacity=".25"/><stop offset="1" stop-color="${BLUE}" stop-opacity="0"/></radialGradient></defs><rect width="1500" height="1000" fill="#08090c"/><rect width="1500" height="1000" fill="url(#g1)"/><rect width="1500" height="1000" fill="url(#g2)"/>`;
+    return `<defs>${glass}<radialGradient id="g1" cx=".82" cy=".9" r=".75"><stop offset="0" stop-color="#2f56ff" stop-opacity=".95"/><stop offset=".55" stop-color="#1a2fd0" stop-opacity=".35"/><stop offset="1" stop-color="#1a2fd0" stop-opacity="0"/></radialGradient><radialGradient id="g2" cx=".05" cy=".05" r=".5"><stop offset="0" stop-color="#2447e6" stop-opacity=".35"/><stop offset="1" stop-color="#2447e6" stop-opacity="0"/></radialGradient></defs><rect width="1500" height="1000" fill="#07080c"/><rect width="1500" height="1000" fill="url(#g1)"/><rect width="1500" height="1000" fill="url(#g2)"/>`;
   }
-  return `<defs><radialGradient id="bg" cx="70%" cy="40%" r="75%"><stop offset="0" stop-color="#eef0f3"/><stop offset=".6" stop-color="#dcdfe4"/><stop offset="1" stop-color="#c8ccd3"/></radialGradient></defs><rect width="1500" height="1000" fill="url(#bg)"/>`;
+  return `<defs>${glass}<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6f90ff"/><stop offset="1" stop-color="#1a2fd0"/></linearGradient><radialGradient id="glow" cx=".15" cy=".05" r=".7"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><rect width="1500" height="1000" fill="url(#bg)"/><rect width="1500" height="1000" fill="url(#glow)"/>`;
 }
 
-/** Плашка справа (right — x правого края) */
-function pillR(text, right, y, fill = BLUE, color = '#fff') {
-  const w = pillW(text, 30), x = right - w;
-  return `<rect x="${x}" y="${y}" width="${w}" height="64" rx="14" fill="${fill}"/><text x="${x + w / 2}" y="${y + 43}" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="30" fill="${color}">${esc(text)}</text>`;
-}
-const pillL = (text, x, y, fill, color) => pillR(text, x + pillW(text, 30), y, fill, color);
+const halo = (cx, cy, radii, tone) => radii.map((r) => (tone === 'dark'
+  ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="2"/>`
+  : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff" fill-opacity=".07"/>`)).join('');
 
-/** Круглая плашка со ссылкой (x — левый край) */
-function linkPill(text, x, y, tone) {
-  const w = pillW(text, 32);
-  const rect = tone === 'dark'
-    ? `<rect x="${x}" y="${y}" width="${w}" height="72" rx="36" fill="#fff" fill-opacity=".14" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>`
-    : `<rect x="${x}" y="${y}" width="${w}" height="72" rx="36" fill="#fff"/>`;
-  return `${rect}<text x="${x + w / 2}" y="${y + 48}" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="32" fill="${tone === 'dark' ? '#fff' : BLUE}">${esc(text)}</text>`;
+/** Маленькая полупрозрачная копия главной иконки в круге (спутник). */
+const satellite = (b, cx, cy, r, t, tone) =>
+  `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff" fill-opacity="${tone === 'dark' ? 0.08 : 0.15}"/>${visual(b, cx, cy, Math.round(r * 1.15), t.pal, 0.85)}`;
+
+const isTg = (s) => /^t\.me\//i.test(s);
+const TG = (x, y, fill) => `<path transform="translate(${x} ${y})" d="M0 14 L36 0 L29 36 L19 26 L10 32 L10 20 Z" fill="${fill}"/>`;
+
+/** Плашка со ссылкой: стеклянная или белая (solid). x — левый край, при center — середина. */
+function linkPill(text, x, y, t, { solid = false, rot = 0, center = false, size = 38 } = {}) {
+  const tg = isTg(text);
+  const w = Math.round([...text].length * size * 0.6 + (tg ? 150 : 90));
+  const left = center ? Math.round(x - w / 2) : x;
+  const h = 92;
+  const fill = solid ? '#fff' : 'url(#glass)';
+  const stroke = solid ? '' : ` stroke="#fff" stroke-opacity="${t.glass[2]}" stroke-width="2"`;
+  const ink = solid ? BLACK : '#fff';
+  const g = `<rect x="${left}" y="${y}" width="${w}" height="${h}" rx="46" fill="${fill}"${stroke}/>${tg ? TG(left + 38, y + 28, ink) : ''}<text x="${tg ? left + 104 : left + w / 2}" y="${y + 62}" text-anchor="${tg ? 'start' : 'middle'}" font-family="${FONT}" font-weight="600" font-size="${size}" fill="${ink}">${esc(text)}</text>`;
+  return { w, h, svg: rot ? `<g transform="rotate(${rot} ${left + w / 2} ${y + h / 2})">${g}</g>` : g };
+}
+
+/** Плашка-метка справа вверху («Новый кейс», «Промокод на 24 часа»). */
+function tagPill(text, t) {
+  const size = 30, w = Math.round([...text].length * size * 0.6 + 60), x = 1404 - w;
+  return `<rect x="${x}" y="54" width="${w}" height="64" rx="16" fill="${t.tag.fill}"/><text x="${x + w / 2}" y="96" text-anchor="middle" font-family="${FONT}" font-weight="600" font-size="${size}" fill="${t.tag.color}">${esc(text)}</text>`;
+}
+
+/** Заголовок. Позиция по одному из: top (верх первой строки), mid (середина блока), last (базовая линия последней строки). */
+function head(b, o) {
+  const lines = wrapHeadline(b.headline || 'Hustlify', o.maxChars);
+  const n = lines.length;
+  const fs = Math.max(40, Math.min(fit(lines, o.maxW, o.maxSize, o.k || 0.64), Math.floor(o.maxH / (1 + (n - 1) * 1.08))));
+  const lh = fs * 1.08;
+  const block = fs + (n - 1) * lh;
+  let first;
+  if (o.last != null) first = o.last - (n - 1) * lh;
+  else if (o.mid != null) first = o.mid - block / 2 + fs * 0.8;
+  else first = o.top + fs * 0.8;
+  const tspans = lines.map((l, i) => `<tspan x="${o.x}" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
+  return {
+    fs, n, last: first + (n - 1) * lh,
+    svg: `<text font-family="${FONT}" font-weight="700" font-size="${fs}" fill="#fff" text-anchor="${o.anchor || 'start'}" letter-spacing="${(-fs * 0.025).toFixed(1)}">${tspans}</text>`,
+  };
 }
 
 /* ── композиции ── */
 
-// hero: 3D-объект (или иконка) на ленте. Светлый и тёмный тон.
-function heroLight(b) {
-  const lines = wrapHeadline(b.headline || 'Hustlify');
-  const fs_ = fit(lines, 760, 78);
-  const lh = fs_ * 1.24;
-  const last = b.link ? 784 : 880;
-  const first = last - (lines.length - 1) * lh;
-  const tspans = lines.map((l, i) => `<tspan x="92" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
-  const pillBottom = first - fs_ * 0.95 - 30;
-  const lw = b.link ? pillW(b.link, 34) : 0;
-  const is3d = !!OBJECTS3D[b.object];
-  return `
-<defs>
- <radialGradient id="bg" cx="70%" cy="40%" r="75%"><stop offset="0" stop-color="#eef0f3"/><stop offset=".6" stop-color="#dcdfe4"/><stop offset="1" stop-color="#c8ccd3"/></radialGradient>
- <linearGradient id="tail" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3a63f5" stop-opacity="0"/><stop offset="1" stop-color="#2d4df0" stop-opacity=".95"/></linearGradient>
- <filter id="b28"><feGaussianBlur stdDeviation="28"/></filter><filter id="b2"><feGaussianBlur stdDeviation="2"/></filter>
-</defs>
-<rect width="1500" height="1000" fill="url(#bg)"/>
-<path d="M 120 190 C 380 130 600 210 760 330" fill="none" stroke="url(#tail)" stroke-width="14" stroke-linecap="round" filter="url(#b2)"/>
-<path d="M 150 212 C 400 170 590 240 745 350" fill="none" stroke="url(#tail)" stroke-width="5" stroke-linecap="round" opacity=".7"/>
-${is3d ? '' : `<circle cx="1090" cy="420" r="300" fill="${BLUE}" opacity=".12"/>`}
-<ellipse cx="1090" cy="${is3d ? 800 : 720}" rx="250" ry="24" fill="#000" opacity=".15" filter="url(#b28)"/>
-${visual(b, 1090, 410, 800, PAL.light)}
-${logo(INK)}
-${b.pill ? `<rect x="96" y="${Math.round(pillBottom - 72)}" width="${pillW(b.pill, 30)}" height="72" rx="14" fill="${BLUE}"/><text x="${96 + pillW(b.pill, 30) / 2}" y="${Math.round(pillBottom - 26)}" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="30" fill="#fff">${esc(b.pill)}</text>` : ''}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="${INK}" letter-spacing="-1.5">${tspans}</text>
-${b.link ? `<rect x="96" y="830" width="${lw}" height="84" rx="42" fill="#fff"/><text x="${96 + lw / 2}" y="884" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="34" fill="${BLUE}">${esc(b.link)}</text>` : ''}`;
+// top: заголовок по центру сверху, стеклянная плашка, огромная иконка обрезана снизу
+function top(b, t, tone) {
+  const h = head(b, { x: 750, anchor: 'middle', top: 150, maxChars: 16, maxW: 1300, maxSize: 126, maxH: 330 });
+  const under = h.last + h.fs * 0.25;
+  const pill = b.link ? linkPill(b.link, 750, Math.round(under + 40), t, { center: true, rot: -3 }) : null;
+  const iconTop = pill ? under + 40 + pill.h + 30 : under + 50;
+  const size = 780, cy = Math.round(iconTop + size * 0.4);
+  return `${halo(750, cy, [560, 430], tone)}${satellite(b, 170, cy + 80, 92, t, tone)}${satellite(b, 1330, cy - 30, 100, t, tone)}${visual(b, 750, cy, size, t.pal)}${h.svg}${pill?.svg || ''}`;
 }
 
-function heroDark(b) {
-  const lines = wrapHeadline(b.headline || 'Hustlify', 16);
-  const fs_ = fit(lines, 1300, lines.length > 1 ? 112 : 150, 0.68);
-  const lh = fs_ * 1.12;
-  const y0 = Math.round(160 + fs_ * 0.85);
-  const tspans = lines.map((l, i) => `<tspan x="750" y="${Math.round(y0 + i * lh)}">${esc(l)}</tspan>`).join('');
-  const lw = b.link ? pillW(b.link, 32) : 0;
-  const oy = Math.round(y0 + (lines.length - 1) * lh + 10);
-  const is3d = !!OBJECTS3D[b.object];
-  const cy = is3d ? oy + 390 : Math.min(oy + 330, 660);
-  return `
-<defs>
- <radialGradient id="g1" cx="50%" cy="85%" r="60%"><stop offset="0" stop-color="#2447e6" stop-opacity=".75"/><stop offset="1" stop-color="#2447e6" stop-opacity="0"/></radialGradient>
- <radialGradient id="g2" cx="12%" cy="10%" r="45%"><stop offset="0" stop-color="#2447e6" stop-opacity=".25"/><stop offset="1" stop-color="#2447e6" stop-opacity="0"/></radialGradient>
-</defs>
-<rect width="1500" height="1000" fill="#08090c"/><rect width="1500" height="1000" fill="url(#g1)"/><rect width="1500" height="1000" fill="url(#g2)"/>
-${is3d ? '' : `<circle cx="750" cy="${cy}" r="300" fill="${BLUE}" opacity=".22"/>`}
-${visual(b, 750, cy, 780, PAL.dark)}
-${logo('#ffffff')}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="#fff" text-anchor="middle" letter-spacing="-2">${tspans}</text>
-${b.pill ? `<rect x="96" y="866" width="${pillW(b.pill, 30)}" height="72" rx="14" fill="${BLUE}"/><text x="${96 + pillW(b.pill, 30) / 2}" y="912" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="30" fill="#fff">${esc(b.pill)}</text>` : ''}
-${b.link ? `<rect x="${1404 - lw}" y="860" width="${lw}" height="84" rx="42" fill="#fff" fill-opacity=".14" stroke="#fff" stroke-opacity=".35" stroke-width="2"/><text x="${1404 - lw / 2}" y="914" text-anchor="middle" font-family="Montserrat" font-weight="600" font-size="32" fill="#fff">${esc(b.link)}</text>` : ''}`;
+// left: заголовок слева, белая плашка со ссылкой, огромная иконка обрезана справа
+function left(b, t, tone) {
+  const h = head(b, { x: 96, mid: b.link ? 420 : 480, maxChars: 13, maxW: 700, maxSize: 118, maxH: 420 });
+  const pill = b.link ? linkPill(b.link, 96, Math.round(h.last + h.fs * 0.25 + 60), t, { solid: true }) : null;
+  return `${halo(1230, 520, [600, 450], tone)}${satellite(b, 700, 880, 66, t, tone)}${visual(b, 1230, 520, 1000, t.pal)}${h.svg}${pill?.svg || ''}`;
 }
 
-// tile: синяя плитка с иконкой по центру, заголовок под ней
-function tile(b) {
-  const tone = b.layout, t = TONE[tone];
-  const lines = wrapHeadline(b.headline || 'Hustlify', 22);
-  const fs_ = fit(lines, 1240, 84, 0.7);
-  const lh = fs_ * 1.15;
-  const first = 700 + fs_ * 0.8;
-  const tspans = lines.map((l, i) => `<tspan x="750" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
-  const lw = b.link ? pillW(b.link, 32) : 0;
-  return `${bgLayer(tone)}${PANEL_DEFS}
-<rect x="500" y="150" width="500" height="500" rx="124" fill="url(#pb)"/>
-<circle cx="920" cy="240" r="90" fill="#fff" opacity=".08"/>
-${visual(b, 750, 400, 520, PAL.blue, 1.2)}
-${logo(t.ink)}
-${b.pill ? pillR(b.pill, 1404, 62) : ''}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="${t.ink}" text-anchor="middle" letter-spacing="-1.5">${tspans}</text>
-${b.link ? linkPill(b.link, Math.round(750 - lw / 2), 896, tone) : ''}`;
+// corner: иконка обрезана в правом верхнем углу, заголовок и ссылка внизу слева
+function corner(b, t, tone) {
+  const pill = b.link ? linkPill(b.link, 96, 826, t) : null;
+  const h = head(b, { x: 96, last: b.link ? 760 : 880, maxChars: 14, maxW: 680, maxSize: 120, maxH: 380 });
+  return `${halo(1160, 260, [560, 420], tone)}${satellite(b, 1330, 820, 84, t, tone)}${visual(b, 1160, 260, 960, t.pal)}${h.svg}${pill?.svg || ''}`;
 }
 
-// split: заголовок слева, синяя панель с иконкой справа
-function split(b) {
-  const tone = b.layout, t = TONE[tone];
-  const lines = wrapHeadline(b.headline || 'Hustlify', 13);
-  const fs_ = fit(lines, 650, 86, 0.7);
-  const lh = fs_ * 1.16;
-  const blockH = fs_ + (lines.length - 1) * lh;
-  const top = 520 - blockH / 2;
-  const first = top + fs_ * 0.82;
-  const tspans = lines.map((l, i) => `<tspan x="96" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
-  return `${bgLayer(tone)}${PANEL_DEFS}
-<rect x="800" y="96" width="604" height="808" rx="76" fill="url(#pb)"/>
-<circle cx="1102" cy="500" r="250" fill="#fff" opacity=".07"/><circle cx="1102" cy="500" r="165" fill="#fff" opacity=".07"/>
-${visual(b, 1102, 500, 560, PAL.blue, 1.05)}
-${logo(t.ink)}
-${b.pill ? pillL(b.pill, 96, Math.max(150, Math.round(top - 100))) : ''}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="${t.ink}" letter-spacing="-1.5">${tspans}</text>
-${b.link ? linkPill(b.link, 96, 820, tone) : ''}`;
-}
-
-// steps: заголовок и 2–3 пронумерованных пункта, справа иконка в плитке
-function steps(b) {
-  const tone = b.layout, t = TONE[tone];
-  const lines = wrapHeadline(b.headline || 'Hustlify', 18);
-  const fs_ = fit(lines, 880, 70, 0.7);
-  const lh = fs_ * 1.16;
-  const first = 200 + fs_ * 0.82;
-  const tspans = lines.map((l, i) => `<tspan x="96" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
-  const y0 = Math.max(400, Math.round(first + (lines.length - 1) * lh + fs_ * 0.3 + 56));
+// steps: заголовок и 2–3 пункта на стеклянных карточках, иконка справа
+function steps(b, t, tone) {
+  const h = head(b, { x: 96, top: 170, maxChars: 16, maxW: 820, maxSize: 84, maxH: 210 });
+  const y0 = Math.max(380, Math.round(h.last + h.fs * 0.3 + 50));
   const rows = b.points.map((p, i) => {
     const y = y0 + i * 126;
-    const ps = Math.max(26, Math.min(42, Math.floor(700 / ([...p].length * 0.58))));
-    return `<rect x="96" y="${y}" width="864" height="104" rx="30" fill="${t.card}" stroke="${t.line}" stroke-width="2"/><circle cx="162" cy="${y + 52}" r="34" fill="${BLUE}"/><text x="162" y="${y + 64}" text-anchor="middle" font-family="Unbounded" font-weight="700" font-size="34" fill="#fff">${i + 1}</text><text x="226" y="${Math.round(y + 52 + ps * 0.35)}" font-family="Montserrat" font-weight="600" font-size="${ps}" fill="${t.ink}">${esc(p)}</text>`;
+    const ps = Math.max(26, Math.min(42, Math.floor(540 / ([...p].length * 0.6))));
+    return `<rect x="96" y="${y}" width="800" height="104" rx="30" fill="url(#glass)" stroke="#fff" stroke-opacity="${t.glass[2]}" stroke-width="2"/><circle cx="162" cy="${y + 52}" r="34" fill="${t.num}"/><text x="162" y="${y + 64}" text-anchor="middle" font-family="${FONT}" font-weight="700" font-size="34" fill="#fff">${i + 1}</text><text x="226" y="${Math.round(y + 52 + ps * 0.35)}" font-family="${FONT}" font-weight="600" font-size="${ps}" fill="#fff">${esc(p)}</text>`;
   }).join('');
-  const lw = b.link ? pillW(b.link, 32) : 0;
-  return `${bgLayer(tone)}${PANEL_DEFS}
-<rect x="1010" y="190" width="394" height="394" rx="96" fill="url(#pb)"/>
-${visual(b, 1207, 387, 394, PAL.blue, 1.1)}
-${logo(t.ink)}
-${b.pill ? pillR(b.pill, 1404, 62) : ''}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="${t.ink}" letter-spacing="-1.5">${tspans}</text>
-${rows}
-${b.link ? linkPill(b.link, 1404 - lw, 640, tone) : ''}`;
+  const pill = b.link ? linkPill(b.link, 96, 860, t) : null;
+  return `${halo(1230, 470, [560, 420], tone)}${visual(b, 1230, 470, 820, t.pal)}${h.svg}${rows}${pill?.svg || ''}`;
 }
 
-// poster: полностью синий постер, огромный заголовок
-function poster(b) {
-  const lines = wrapHeadline(b.headline || 'Hustlify', 12);
-  const fs_ = fit(lines, 760, 120, 0.7);
-  const lh = fs_ * 1.08;
-  const top = b.pill ? 330 : 250;
-  const first = top + fs_ * 0.82;
-  const tspans = lines.map((l, i) => `<tspan x="96" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
-  return `${PANEL_DEFS}<rect width="1500" height="1000" fill="url(#pb)"/>
-<circle cx="1260" cy="900" r="520" fill="#000" opacity=".12"/><circle cx="1420" cy="80" r="300" fill="#fff" opacity=".07"/>
-${visual(b, 1130, 640, 640, PAL.blue, 1.1)}
-${logo('#ffffff')}
-${b.pill ? pillL(b.pill, 96, 200, INK, '#fff') : ''}
-<text font-family="Unbounded" font-weight="700" font-size="${fs_}" fill="#fff" letter-spacing="-2">${tspans}</text>
-${b.link ? linkPill(b.link, 96, 850, 'light') : ''}`;
+// poster: огромный заголовок, иконка обрезана в правом нижнем углу
+function poster(b, t, tone) {
+  const h = head(b, { x: 96, top: 190, maxChars: 11, maxW: 1250, maxSize: 170, maxH: 420, k: 0.66 });
+  const pill = b.link ? linkPill(b.link, 96, 860, t) : null;
+  return `${halo(1260, 910, [520, 380], tone)}${visual(b, 1260, 910, 720, t.pal)}${h.svg}${pill?.svg || ''}`;
 }
 
-/** Композиция: явно заданная (style), иначе по содержанию: пункты → steps, 3D → hero, иконка → tile/split/poster по хэшу заголовка. */
+/** Композиция: явно заданная (style), иначе по содержанию: пункты → steps, иначе по хэшу заголовка. */
 export function pickStyle(b) {
   let s = b.style;
   if (s === 'steps' && b.points.length < 2) s = '';
-  if (s) return s;
+  if (s && STYLES[s]) return s;
   if (b.points.length >= 2) return 'steps';
-  if (OBJECTS3D[b.object]) return 'hero';
   const h = [...b.headline].reduce((a, c) => a + c.codePointAt(0), 0);
-  return ['tile', 'split', 'poster'][h % 3];
+  return ['top', 'left', 'corner', 'poster'][h % 4];
 }
 
 export function bannerSvg(spec) {
   const b = normalizeBanner(spec);
-  const s = pickStyle(b);
-  const body = s === 'hero' ? (b.layout === 'dark' ? heroDark(b) : heroLight(b)) : { tile, split, steps, poster }[s](b);
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1500" height="1000" viewBox="0 0 1500 1000">${body}</svg>`;
+  const tone = b.layout === 'dark' ? 'dark' : 'light';
+  const t = TONES[tone];
+  const body = { top, left, corner, steps, poster }[pickStyle(b)](b, t, tone);
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1500" height="1000" viewBox="0 0 1500 1000">${backdrop(tone)}${body}${logo()}${b.pill ? tagPill(b.pill, t) : ''}</svg>`;
 }
 
 export function renderBanner(spec) {
