@@ -19,6 +19,8 @@ export function rest({ url, key }) {
     remove: (table, qs) => req('DELETE', `/${table}?${qs}`),
     upsert: (table, rows, onConflict) =>
       req('POST', `/${table}?on_conflict=${onConflict}`, { body: rows, prefer: 'resolution=merge-duplicates,return=representation' }),
+    insertIgnore: (table, row, onConflict) =>
+      req('POST', `/${table}?on_conflict=${onConflict}`, { body: row, prefer: 'resolution=ignore-duplicates,return=representation' }),
     async openapi() {
       const r = await fetch(base + '/', { headers });
       if (!r.ok) throw new Error(`Supabase openapi → ${r.status}`);

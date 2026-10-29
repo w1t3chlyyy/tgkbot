@@ -86,12 +86,17 @@ function renderNew() {
 async function renderPlan() {
   view.innerHTML = '<div class="muted pad">Загрузка…</div>';
   const items = await api('/plan');
-  view.innerHTML = `<div class="card"><b>Сгенерировать план по материалам из баз</b>
+  view.innerHTML = `<div class="card"><b>Загрузить свой план</b>
+    <div class="muted small" style="margin:4px 0 8px">Вставь текст: по строке или абзацу на пост, с датами или без. Каждый день в ${esc(boot.settings.dailyTime)} бот сам пришлёт пост на согласование.</div>
+    <textarea id="plantext" placeholder="30.10 — Рулетка промокодов&#10;31.10 — Как купить Stars: 3 шага&#10;01.11 — Кейс Apex Core…"></textarea>
+    <div style="height:10px"></div><button class="b" style="width:100%" id="imp">Разобрать и сохранить</button></div>
+    <div class="card"><b>…или сгенерировать план по базам</b>
     <div class="row" style="margin-top:8px"><input id="days" type="number" min="1" max="31" value="14" style="width:90px"><input id="focus" class="grow" placeholder="Фокус (необязательно): запуск конкурса, найм…"></div>
     <div style="height:10px"></div><button class="b" style="width:100%" id="gen">Составить план</button></div>
-    ${items.map((i) => `<div class="card" data-id="${i.id}"><div class="row"><span class="badge ${i.status === 'made' ? 'published' : ''}">${i.status === 'made' ? 'пост создан' : i.status === 'skipped' ? 'пропущен' : 'идея'}</span><span class="muted small">${esc(i.day)}</span></div>
+    ${items.map((i) => `<div class="card" data-id="${i.id}"><div class="row"><span class="badge ${i.status === 'made' ? 'published' : i.status === 'failed' ? 'failed' : ''}">${{ made: 'отправлен на согласование', skipped: 'пропущен', failed: 'ошибка', making: 'готовлю…' }[i.status] || 'ждёт даты'}</span><span class="muted small">${esc(i.day)}</span></div>
       <div style="font-weight:700;margin:8px 0 4px">${esc(i.topic)}</div><div class="excerpt">${esc(i.brief)}</div>
-      <div class="row">${i.status === 'idea' ? '<button class="b s" data-a="make">Сделать пост</button>' : ''}<button class="b s d" data-a="del">Убрать</button></div></div>`).join('')}`;
+      <div class="row">${['idea', 'failed'].includes(i.status) ? '<button class="b s" data-a="make">Сделать пост сейчас</button>' : ''}<button class="b s d" data-a="del">Убрать</button></div></div>`).join('')}`;
+  $('#imp').onclick = (e) => run(e.target, async () => { e.target.textContent = 'Разбираю…'; try { const r = await api('/plan/import', { method: 'POST', body: { text: $('#plantext').value } }); toast(`Принято постов: ${r.count}`); } finally { e.target.textContent = 'Разобрать и сохранить'; } renderPlan(); });
   $('#gen').onclick = (e) => run(e.target, async () => { e.target.textContent = 'Думаю…'; try { await api('/plan/generate', { method: 'POST', body: { days: +$('#days').value, focus: $('#focus').value } }); } finally { e.target.textContent = 'Составить план'; } renderPlan(); });
   view.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => run(b, async () => {
     const id = b.closest('.card').dataset.id;
@@ -107,6 +112,7 @@ function renderSettings() {
     <label style="margin-top:0">Канал для публикации</label><input id="channel" value="${esc(s.channel)}" placeholder="@channel или -100…">
     <div class="muted small" style="margin-top:6px">Бот должен быть админом канала с правом публиковать.</div>
     <div class="row"><div class="grow"><label>Часовой пояс</label><input id="tz" value="${esc(s.tz)}"></div><div style="width:110px"><label>Время по умолч.</label><input id="dt" value="${esc(s.defaultTime)}"></div></div>
+    <div class="row"><div class="grow"><label>Ежедневный пост на согласование в</label><input id="daily" value="${esc(s.dailyTime)}"></div><div class="sw" style="padding-top:26px"><span>Авто</span><input type="checkbox" id="de" ${s.dailyEnabled ? 'checked' : ''}></div></div>
     <div class="sw"><span>Премиум-эмодзи <span class="muted small">(в паке: ${boot.emojiCount})</span></span><input type="checkbox" id="ce" ${s.customEmoji ? 'checked' : ''}></div>
     <label>Пак премиум-эмодзи</label><div class="row"><input id="pack" class="grow" placeholder="t.me/addemoji/…"><button class="b g" id="loadpack">Загрузить</button></div>
     <label>Ссылки для кнопок (JSON)</label><textarea id="links">${esc(JSON.stringify(s.links, null, 2))}</textarea>
@@ -114,7 +120,7 @@ function renderSettings() {
     <div style="height:12px"></div><button class="b" style="width:100%" id="save">Сохранить</button></div>`;
   $('#save').onclick = (e) => run(e.target, async () => {
     let links; try { links = JSON.parse($('#links').value); } catch { throw new Error('Ссылки: некорректный JSON'); }
-    await api('/settings', { method: 'PUT', body: { channel: $('#channel').value, tz: $('#tz').value, defaultTime: $('#dt').value, customEmoji: $('#ce').checked, stylePrompt: $('#style').value, links } });
+    await api('/settings', { method: 'PUT', body: { channel: $('#channel').value, tz: $('#tz').value, defaultTime: $('#dt').value, dailyTime: $('#daily').value, dailyEnabled: $('#de').checked, customEmoji: $('#ce').checked, stylePrompt: $('#style').value, links } });
     boot = await api('/bootstrap'); toast('Сохранено');
   });
   $('#loadpack').onclick = (e) => run(e.target, async () => { const r = await api('/emoji/pack', { method: 'POST', body: { name: $('#pack').value } }); boot = await api('/bootstrap'); toast(`Загружено эмодзи: ${r.count}`); renderSettings(); });

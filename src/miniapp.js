@@ -1,8 +1,12 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
+import { webhookCallback } from 'grammy';
 import { cfg, ROOT } from './config.js';
-import { posts, plan, getRuntime, getSetting, setSetting, saveEmojiPack, loadEmojiMap, DEFAULT_LINKS } from './store.js';
+import { posts, plan, getRuntime, getSetting, setSetting, saveEmojiPack, loadEmojiMap, claimUpdate, DEFAULT_LINKS } from './store.js';
+import { runCron } from './scheduler.js';
+import { parsePlan, savePlan } from './planner.js';
+import { setupMenu } from './bot.js';
 import { listCatalog, searchRows } from './sources.js';
 import { generatePost, generatePlan } from './post.js';
 import { renderBanner, normalizeBanner } from './banner.js';
@@ -31,14 +35,44 @@ export function verifyInitData(initData, token, maxAgeSec = 86400) {
 
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => { console.error('[api]', e); res.status(400).json({ error: e.message }); });
 
-export function createApp(api) {
+const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+export const webhookSecret = () => crypto.createHash('sha256').update(cfg.botToken).digest('hex').slice(0, 32);
+
+/** bot — экземпляр grammy; defer(promise) — «доделать после ответа» (на Vercel это waitUntil). */
+export function createApp(bot, { defer = (p) => p.catch((e) => console.error('[defer]', e.message)) } = {}) {
+  const api = bot.api;
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
-  app.get('/health', (_, res) => res.json({ ok: true }));
-  app.use('/app/fonts', express.static(path.join(ROOT, 'assets', 'fonts'), { maxAge: '30d' }));
+  app.get(['/health', '/api/health'], (_, res) => res.json({ ok: true }));
   app.use('/app', express.static(path.join(ROOT, 'public', 'app')));
   app.get('/', (_, res) => res.redirect('/app/'));
+
+  /* ── публичные маршруты (свои способы защиты): вебхук Telegram, cron, разовая настройка ── */
+  const hook = webhookCallback(bot, 'express', { secretToken: webhookSecret(), timeoutMilliseconds: 55_000 });
+  app.post('/api/webhook', async (req, res, next) => {
+    // сначала секрет: иначе посторонний мог бы «занять» номера update и заблокировать настоящие
+    if (!safeEq(req.get('x-telegram-bot-api-secret-token') || '', webhookSecret())) return res.status(401).json({ error: 'bad secret' });
+    const id = req.body?.update_id;
+    try { if (id && !(await claimUpdate(id))) return res.sendStatus(200); } // Telegram повторил доставку — уже обработано
+    catch (e) { console.error('[dedupe]', e.message); }
+    return hook(req, res, next);
+  });
+
+  const cronAuth = (req, res, next) => {
+    const given = (req.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.query.secret || req.query.key || '';
+    if (!cfg.cronSecret || !safeEq(given, cfg.cronSecret)) return res.status(401).json({ error: 'bad secret' });
+    next();
+  };
+  app.get('/api/cron', cronAuth, wrap(async (req, res) => res.json({ ok: true, ...(await runCron(api, { defer })) })));
+  app.get('/api/setup', cronAuth, wrap(async (req, res) => {
+    const base = cfg.publicUrl || `https://${req.get('host')}`;
+    if (!cfg.publicUrl) cfg.publicUrl = base;
+    await api.setWebhook(`${base}/api/webhook`, { secret_token: webhookSecret(), allowed_updates: ['message', 'callback_query'] });
+    await setupMenu(bot);
+    const me = await api.getMe();
+    res.json({ ok: true, bot: '@' + me.username, webhook: `${base}/api/webhook`, miniapp: `${base}/app/`, next: 'Теперь напиши боту /start' });
+  }));
 
   app.use('/api', (req, res, next) => {
     if (cfg.devNoAuth) { req.user = { id: [...cfg.adminIds][0] || 0 }; return next(); }
@@ -115,6 +149,16 @@ export function createApp(api) {
     if (!items.length) throw new Error('Qwen не вернул план, попробуй ещё раз');
     res.json(await plan.insertMany(items.map((i) => ({ day: i.day, topic: i.topic, brief: i.brief }))));
   }));
+  app.post('/api/plan/import', wrap(async (req, res) => {
+    const text = String(req.body?.text || '').trim();
+    if (!text) throw new Error('Вставь текст плана');
+    const rt = await getRuntime();
+    const { items, skippedPast } = await parsePlan(text, { tz: rt.tz, dailyTime: rt.dailyTime });
+    if (!items.length) throw new Error('Все даты в плане уже прошли');
+    await savePlan(items);
+    await setSetting('approver', req.user.id);
+    res.json({ count: items.length, skippedPast });
+  }));
   app.post('/api/plan/:id/make', wrap(async (req, res) => {
     const item = await plan.get(req.params.id);
     if (!item) throw new Error('Пункт плана не найден');
@@ -134,6 +178,8 @@ export function createApp(api) {
     if (b.channel != null) await setSetting('channel', String(b.channel).trim());
     if (b.tz) { try { new Intl.DateTimeFormat('ru', { timeZone: b.tz }); } catch { throw new Error('Неизвестный часовой пояс'); } await setSetting('tz', b.tz); }
     if (b.defaultTime && /^\d{1,2}:\d{2}$/.test(b.defaultTime)) await setSetting('default_time', b.defaultTime);
+    if (b.dailyTime && /^([01]?\d|2[0-3]):[0-5]\d$/.test(b.dailyTime)) await setSetting('daily_time', b.dailyTime.padStart(5, '0'));
+    if (b.dailyEnabled != null) await setSetting('daily_enabled', !!b.dailyEnabled);
     if (b.customEmoji != null) await setSetting('custom_emoji', !!b.customEmoji);
     if (b.stylePrompt != null) await setSetting('style_prompt', String(b.stylePrompt));
     if (b.links) await setSetting('links', { ...DEFAULT_LINKS, ...b.links });

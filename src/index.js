@@ -1,20 +1,21 @@
+// Запуск на обычном сервере (Render, VPS, Docker): long polling + таймер внутри процесса.
+// Для Vercel используется api/[...all].js (вебхук + внешний cron), этот файл там не нужен.
 import { cfg, assertConfig } from './config.js';
 import { createBot, setupMenu } from './bot.js';
 import { createApp } from './miniapp.js';
-import { startScheduler } from './scheduler.js';
+import { startInterval } from './scheduler.js';
 import { loadEmojiMap } from './store.js';
 
 assertConfig();
 const bot = createBot();
-const app = createApp(bot.api);
-
+const app = createApp(bot);
 const server = app.listen(cfg.port, () => console.log(`[web] http://localhost:${cfg.port}  мини-приложение: ${cfg.publicUrl || '(задай PUBLIC_URL)'}/app/`));
 
 await loadEmojiMap().catch((e) => console.warn('[emoji]', e.message));
-startScheduler(bot.api);
+await bot.api.deleteWebhook().catch(() => {}); // polling и вебхук взаимоисключающие
+startInterval(bot.api);
 await setupMenu(bot);
 
 const stop = () => { server.close(); bot.stop(); process.exit(0); };
 process.once('SIGINT', stop); process.once('SIGTERM', stop);
-
-await bot.start({ onStart: (me) => console.log(`[bot] @${me.username} запущен, админы: ${[...cfg.adminIds].join(', ')}`) });
+await bot.start({ onStart: (me) => console.log(`[bot] @${me.username} запущен (polling), админы: ${[...cfg.adminIds].join(', ')}`) });

@@ -3,16 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Telegram-бот + мини-приложение: Qwen пишет посты и баннеры для канала Hustlify, согласование в чате, отложенная публикация",
+  "description": "Telegram-бот + мини-приложение для канала Hustlify: план → ежедневный пост на согласование → публикация (Vercel или любой сервер)",
   "scripts": {
     "start": "node --env-file=.env src/index.js",
     "dev": "node --env-file=.env --watch src/index.js",
     "test": "node tests/run.mjs"
   },
-  "engines": { "node": ">=20.6" },
+  "engines": {
+    "node": ">=20.6"
+  },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "express": "^4.19.2",
-    "grammy": "^1.30.0"
+    "grammy": "^1.30.0",
+    "@vercel/functions": "^2.0.0"
   }
 }

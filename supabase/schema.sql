@@ -26,7 +26,7 @@ create table if not exists plan_items (
   topic text not null,
   brief text not null default '',
   refs jsonb not null default '[]',
-  status text not null default 'idea',            -- idea | made | skipped
+  status text not null default 'idea',            -- idea | making | made | failed | skipped
   post_id bigint,
   created_at timestamptz not null default now()
 );
@@ -41,7 +41,12 @@ create table if not exists emoji (
 );
 create index if not exists emoji_by_char on emoji (emoji, idx);
 
+-- защита от повторной доставки вебхука Telegram
+create table if not exists processed_updates (update_id bigint primary key, at timestamptz not null default now());
+create index if not exists processed_updates_at on processed_updates (at);
+
 alter table posts enable row level security;
+alter table processed_updates enable row level security;
 alter table plan_items enable row level security;
 alter table settings enable row level security;
 alter table emoji enable row level security;
