@@ -27,10 +27,9 @@ export function menuKeyboard(post, menu, rt) {
   }
   if (menu === 'banner') {
     const b = post.banner || {};
-    return k.text(`Макет: ${b.layout === 'dark' ? 'тёмный' : 'светлый'} ⇄`, cb(id, 'bl')).text(`Объект: ${b.object} ⇄`, cb(id, 'bo')).row()
-      .text(`Надпись: ${b.word} ⇄`, cb(id, 'bw')).text('Заголовок', cb(id, 'bh')).row()
-      .text('Плашка', cb(id, 'bp')).text('Ссылка', cb(id, 'bk')).row()
-      .text('← Назад', cb(id, 'back'));
+    return k.text(`Фон: ${b.layout === 'dark' ? 'тёмный' : 'синий'} ⇄`, cb(id, 'bl')).text(`Иконка: ${b.object} ⇄`, cb(id, 'bo')).row()
+      .text('Заголовок', cb(id, 'bh')).text('Плашка', cb(id, 'bp')).row()
+      .text('Ссылка', cb(id, 'bk')).text('← Назад', cb(id, 'back'));
   }
   if (menu === 'sched') {
     for (const [label, d] of presets(rt.tz)) k.text(label, cb(id, 't', Math.floor(d.getTime() / 1000))).row();
