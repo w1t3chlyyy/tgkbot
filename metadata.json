@@ -1,0 +1,6 @@
+{
+  "name": "Hustlify Post Studio",
+  "description": "Telegram-бот и студия контент-плана Hustlify: план публикаций, генерация постов с баннерами и согласование",
+  "version": "1.0.0",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
