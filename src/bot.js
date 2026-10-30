@@ -3,7 +3,7 @@ import { cfg } from './config.js';
 import { posts, plan, getRuntime, setSetting, getSetting, saveEmojiPack, loadEmojiMap, getState, setState, clearState } from './store.js';
 import { generatePost, revisePost } from './post.js';
 import { normalizeBanner } from './banner.js';
-import { showDraft, controlText, menuKeyboard, cycle, OBJECTS, WORDS } from './draft.js';
+import { showDraft, controlText, menuKeyboard, cycle, OBJECTS, WORDS, LAYOUTS } from './draft.js';
 import { publishPost } from './publisher.js';
 import { parseWhen, fmt } from './tz.js';
 import { DEFAULT_STYLE } from './prompts.js';
@@ -230,11 +230,11 @@ export function createBot() {
         case 'edit':
           await setState(chatId, { mode: 'edit', postId: id });
           await ctx.answerCallbackQuery();
-          return ctx.reply('Что поменять? Напиши обычными словами: «сделай короче», «добавь, что код одноразовый», «баннер тёмный, надпись конкурс».');
+          return ctx.reply('Что поменять? Напиши обычными словами: «сделай короче», «добавь, что код одноразовый», «баннер белый, иконка кубок».');
         case 'banner': await ctx.answerCallbackQuery(); return ctx.editMessageReplyMarkup({ reply_markup: menuKeyboard({ ...post, status: 'draft' }, 'banner', rt) });
         case 'bl': case 'bo': case 'bw': {
           const b = { ...post.banner };
-          if (act === 'bl') b.layout = b.layout === 'dark' ? 'light' : 'dark';
+          if (act === 'bl') b.layout = cycle(LAYOUTS, b.layout); // чёрный → белый → синий
           if (act === 'bo') b.object = cycle(OBJECTS, b.object);
           if (act === 'bw') b.word = cycle(WORDS, b.word);
           await posts.update(id, { banner: normalizeBanner(b) });
