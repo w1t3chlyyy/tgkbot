@@ -49,13 +49,14 @@ export function createApp(bot, { defer = (p) => p.catch((e) => console.error('[d
   app.get('/', (_, res) => res.redirect('/app/'));
 
   /* ── публичные маршруты (свои способы защиты): вебхук Telegram, cron, разовая настройка ── */
-  const hook = webhookCallback(bot, 'express', { secretToken: webhookSecret(), timeoutMilliseconds: 55_000 });
-  app.post('/api/webhook', async (req, res, next) => {
+ let hook; // создаём лениво: иначе grammy запрещает bot.start() (long polling)
+app.post('/api/webhook', async (req, res, next) => {
     // сначала секрет: иначе посторонний мог бы «занять» номера update и заблокировать настоящие
     if (!safeEq(req.get('x-telegram-bot-api-secret-token') || '', webhookSecret())) return res.status(401).json({ error: 'bad secret' });
     const id = req.body?.update_id;
     try { if (id && !(await claimUpdate(id))) return res.sendStatus(200); } // Telegram повторил доставку — уже обработано
     catch (e) { console.error('[dedupe]', e.message); }
+        hook ||= webhookCallback(bot, 'express', { secretToken: webhookSecret(), timeoutMilliseconds: 55_000 });
     return hook(req, res, next);
   });
 
