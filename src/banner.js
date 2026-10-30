@@ -12,13 +12,23 @@ const FONT = 'Inter, Montserrat';
 
 const BLACK = '#0b0b0f';
 const BLUE = '#2447e6';
+const BLUE2 = '#3a63f5';
 const W = 1500, H = 1000;
+
+/* ── палитры: основа чёрно-белая, синий — небольшой акцент ──
+   dark  — чёрный (основной), light — белый, blue — синий (редко, для разнообразия) */
+const PAL = {
+  dark:  { bg: '#07080b', fg: '#fff', face: ['#ffffff', '#c4c8d1', '#4d515c'], side: ['#8d919c', '#0b0c10'], inner: ['#0b0c10', '#2a2d36'], tile: ['#50545f', '#0d0e12'], ink: ['#ffffff', '#cfd3dc'], acc: BLUE2, cut: '#15171c', glow: '#8e97ad', glowOp: '.22', glass: ['#fff', '.16', '.05'], gStroke: '#fff', gOp: '.28', dotBg: '#fff', dotFg: BLUE, inv: false },
+  light: { bg: '#eef0f4', fg: BLACK, face: ['#5a5e69', '#1b1c21', '#050506'], side: ['#2c2f37', '#000000'], inner: ['#0b0c10', '#2a2d36'], tile: ['#3b3e48', '#0a0a0d'], ink: ['#ffffff', '#cfd3dc'], acc: BLUE2, cut: '#15171c', glow: '#2f56ff', glowOp: '.2', glass: ['#000', '.10', '.04'], gStroke: '#000', gOp: '.18', dotBg: BLACK, dotFg: '#fff', inv: true },
+  blue:  { bg: '#1727c4', fg: '#fff', face: ['#d4deff', '#7f9bff', '#2b46ee'], side: ['#3550f0', '#0c1676'], inner: ['#2540e6', '#6d8cff'], tile: ['#7d99ff', '#2a45ee'], ink: ['#ffffff', '#d3dfff'], acc: BLACK, cut: '#dbe3ff', glow: '#2f56ff', glowOp: '.35', glass: ['#fff', '.3', '.1'], gStroke: '#fff', gOp: '.4', dotBg: '#fff', dotFg: BLUE, inv: false },
+};
+let T = PAL.dark;
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export function normalizeBanner(b = {}, fallback = {}) {
-  const x = { layout: 'light', object: 'case', word: 'hustlify', headline: '', sub: '', pill: '', link: '', style: '', points: [], ...fallback, ...b };
-  if (!['light', 'dark'].includes(x.layout)) x.layout = 'light';
+  const x = { layout: 'dark', object: 'case', word: 'hustlify', headline: '', sub: '', pill: '', link: '', style: '', points: [], ...fallback, ...b };
+  if (!PAL[x.layout]) x.layout = 'dark';
   if (!OBJECTS[x.object]) x.object = 'case';
   if (!WORDS[x.word]) x.word = 'hustlify';
   if (!STYLES[x.style]) x.style = '';
@@ -56,10 +66,11 @@ function logoInfo() {
 }
 function logo() {
   const l = logoInfo();
-  if (!l) return `<text x="96" y="104" font-family="${FONT}" font-size="36" fill="#fff" letter-spacing="1"><tspan font-weight="700">HUSTLI</tspan><tspan font-weight="400">FY</tspan></text>`;
+  if (!l) return `<text x="96" y="104" font-family="${FONT}" font-size="36" fill="${T.fg}" letter-spacing="1"><tspan font-weight="700">HUSTLI</tspan><tspan font-weight="400">FY</tspan></text>`;
   let h = l.ratio < 1.5 ? 68 : 52, w = h * l.ratio;
   if (w > 340) { w = 340; h = w / l.ratio; }
-  return `<image xlink:href="${l.href}" x="96" y="${Math.round(82 - h / 2)}" width="${Math.round(w)}" height="${Math.round(h)}"/>`;
+  const img = `<image xlink:href="${l.href}" x="96" y="${Math.round(82 - h / 2)}" width="${Math.round(w)}" height="${Math.round(h)}"/>`;
+  return T.inv ? `<g filter="url(#ink)">${img}</g>` : img; // белый логотип на белом фоне перекрашиваем в тёмный
 }
 
 /** Переносит заголовок на строки: уважает \n, иначе делит по пробелу ближе к середине. */
@@ -101,21 +112,23 @@ const DRAW = {
   trophy: (p) => `<path d="M54 28 H146 V92 C146 124 126 142 100 142 C74 142 54 124 54 92 Z" fill="${p.ink}"/><path d="M54 44 H28 C28 84 42 100 64 104" fill="none" stroke="${p.ink}" stroke-width="10" stroke-linecap="round"/><path d="M146 44 H172 C172 84 158 100 136 104" fill="none" stroke="${p.ink}" stroke-width="10" stroke-linecap="round"/><rect x="90" y="140" width="20" height="26" fill="${p.ink}"/><rect x="60" y="164" width="80" height="20" rx="8" fill="${p.acc}"/><circle cx="100" cy="78" r="16" fill="${p.acc}"/>`,
   bear: (p) => `<circle cx="50" cy="54" r="26" fill="${p.ink}"/><circle cx="150" cy="54" r="26" fill="${p.ink}"/><circle cx="50" cy="54" r="12" fill="${p.acc}"/><circle cx="150" cy="54" r="12" fill="${p.acc}"/><circle cx="100" cy="106" r="66" fill="${p.ink}"/><ellipse cx="100" cy="128" rx="30" ry="23" fill="${p.acc}"/><ellipse cx="100" cy="118" rx="10" ry="7" fill="${p.ink}"/><path d="M100 125 V136 M88 143 Q100 151 112 143" fill="none" stroke="${p.ink}" stroke-width="5" stroke-linecap="round"/><circle cx="76" cy="94" r="8" fill="${BLACK}"/><circle cx="124" cy="94" r="8" fill="${BLACK}"/>`,
   check: (p) => `<circle cx="100" cy="100" r="84" fill="${p.ink}"/><path d="M60 102 L88 130 L142 70" fill="none" stroke="${p.acc}" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>`,
-  tag: (p) => `<path d="M30 30 H110 L178 98 Q186 106 178 114 L114 178 Q106 186 98 178 L30 110 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="6" stroke-linejoin="round"/><circle cx="66" cy="66" r="12" fill="${p.bg}"/><text x="112" y="124" font-family="${FONT}" font-weight="700" font-size="64" text-anchor="middle" fill="${p.acc}">%</text>`,
+  // скидка: ценник с процентом, нарисованным фигурами (раньше шрифтом — «плыл»)
+  tag: (p) => `<path d="M30 30 H110 L178 98 Q186 106 178 114 L114 178 Q106 186 98 178 L30 110 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="6" stroke-linejoin="round"/><circle cx="66" cy="66" r="12" fill="${p.bg}"/><circle cx="88" cy="96" r="10" fill="${p.acc}"/><circle cx="120" cy="128" r="10" fill="${p.acc}"/><path d="M126 86 L82 138" stroke="${p.acc}" stroke-width="9" stroke-linecap="round"/>`,
   app: (p) => `<rect x="56" y="12" width="88" height="176" rx="20" fill="${p.ink}"/><rect x="66" y="34" width="68" height="118" rx="8" fill="${p.acc}"/><rect x="88" y="19" width="24" height="5" rx="2.5" fill="${p.bg}"/><circle cx="100" cy="170" r="7" fill="${p.bg}"/>`,
-  team: (p) => `<circle cx="100" cy="64" r="34" fill="${p.ink}"/><path d="M34 176 C34 118 166 118 166 176 Z" fill="${p.ink}"/><circle cx="164" cy="84" r="20" fill="${p.bg}"/><path d="M128 176 C128 140 196 140 196 176 Z" fill="${p.bg}"/><circle cx="36" cy="84" r="20" fill="${p.bg}"/><path d="M4 176 C4 140 72 140 72 176 Z" fill="${p.bg}"/>`,
+  // команда: главный человек в центре, двое по бокам той же заливкой, но приглушённые
+  team: (p) => `<g fill="${p.ink}" fill-opacity=".5"><circle cx="36" cy="86" r="20"/><path d="M2 170 C2 132 70 132 70 170 Z"/><circle cx="164" cy="86" r="20"/><path d="M130 170 C130 132 198 132 198 170 Z"/></g><circle cx="100" cy="64" r="34" fill="${p.ink}"/><path d="M34 178 C34 120 166 120 166 178 Z" fill="${p.ink}"/>`,
   play: (p) => `<rect x="14" y="40" width="172" height="120" rx="34" fill="${p.ink}"/><path d="M82 72 L134 100 L82 128 Z" fill="${p.acc}" stroke="${p.acc}" stroke-width="8" stroke-linejoin="round"/>`,
   star: (p) => `<polygon points="${starPts(100, 106, 88, 40)}" fill="${p.ink}" stroke="${p.ink}" stroke-width="14" stroke-linejoin="round"/>`,
   crown: (p) => `<path d="M22 150 L14 62 L62 102 L100 42 L138 102 L186 62 L178 150 Z" fill="${p.ink}" stroke="${p.ink}" stroke-width="8" stroke-linejoin="round"/><rect x="24" y="158" width="152" height="24" rx="9" fill="${p.acc}"/><circle cx="14" cy="60" r="12" fill="${p.ink}"/><circle cx="100" cy="38" r="12" fill="${p.ink}"/><circle cx="186" cy="60" r="12" fill="${p.ink}"/><circle cx="100" cy="122" r="13" fill="${p.acc}"/>`,
   globe: (p) => `<circle cx="100" cy="100" r="84" fill="none" stroke="${p.ink}" stroke-width="16"/><ellipse cx="100" cy="100" rx="38" ry="84" fill="none" stroke="${p.ink}" stroke-width="14"/><path d="M16 100 H184 M30 58 H170 M30 142 H170" fill="none" stroke="${p.ink}" stroke-width="12"/>`,
 };
 
-// иконка на стекле: светлый градиент (в системе координат самой иконки) и чёрный акцент
-const ICON_PAL = { ink: 'url(#iInk)', acc: BLACK, bg: '#dbe3ff' };
+// иконка на монете/плитке: светлый градиент и акцент палитры (синий на тёмном/белом, чёрный на синем)
+const iconPal = () => ({ ink: 'url(#iInk)', acc: T.acc, bg: T.cut });
 
 function icon(b, cx, cy, size, { shadow = true } = {}) {
   const draw = DRAW[b.object] || DRAW.case;
-  const g = `<g transform="translate(${Math.round(cx - size / 2)} ${Math.round(cy - size / 2)}) scale(${(size / 200).toFixed(4)})">${draw(ICON_PAL)}</g>`;
+  const g = `<g transform="translate(${Math.round(cx - size / 2)} ${Math.round(cy - size / 2)}) scale(${(size / 200).toFixed(4)})">${draw(iconPal())}</g>`;
   return shadow ? `<g filter="url(#drop)">${g}</g>` : g;
 }
 
@@ -127,17 +140,17 @@ const mix = (a, b, t) => {
   return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
 };
 
-/** Толстая монета с гравировкой-иконкой. Толщина — стопка тёмных кругов со сдвигом. */
+/** Толстая монета с гравировкой-иконкой. Толщина — стопка кругов со сдвигом. */
 function coin(b, cx, cy, R, { blur = 0, opacity = 1, lean = 1 } = {}) {
   const id = `cl${++seq}`;
   const ox = Math.round(R * 0.09 * lean), oy = Math.round(R * 0.11), N = 18;
   let side = '';
-  for (let i = N; i >= 1; i--) side += `<circle cx="${cx + (ox * i) / N}" cy="${cy + (oy * i) / N}" r="${R}" fill="${mix('#3550f0', '#0c1676', i / N)}"/>`;
+  for (let i = N; i >= 1; i--) side += `<circle cx="${cx + (ox * i) / N}" cy="${cy + (oy * i) / N}" r="${R}" fill="${mix(T.side[0], T.side[1], i / N)}"/>`;
   const body = `${side}
 <circle cx="${cx}" cy="${cy}" r="${R}" fill="url(#cFace)"/>
 <circle cx="${cx}" cy="${cy}" r="${R - R * 0.018}" fill="none" stroke="url(#cRim)" stroke-width="${Math.round(R * 0.04)}"/>
 <circle cx="${cx}" cy="${cy}" r="${Math.round(R * 0.80)}" fill="url(#cInner)"/>
-<circle cx="${cx}" cy="${cy}" r="${Math.round(R * 0.80)}" fill="none" stroke="#0a1470" stroke-opacity=".35" stroke-width="${Math.round(R * 0.025)}"/>
+<circle cx="${cx}" cy="${cy}" r="${Math.round(R * 0.80)}" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="${Math.round(R * 0.025)}"/>
 <circle cx="${cx}" cy="${cy}" r="${Math.round(R * 0.80 + R * 0.02)}" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="2"/>
 <clipPath id="${id}"><circle cx="${cx}" cy="${cy}" r="${R}"/></clipPath>
 <ellipse cx="${Math.round(cx - R * 0.28)}" cy="${Math.round(cy - R * 0.55)}" rx="${Math.round(R * 0.95)}" ry="${Math.round(R * 0.5)}" transform="rotate(-24 ${cx} ${cy})" fill="url(#gloss)" clip-path="url(#${id})"/>
@@ -146,7 +159,7 @@ ${icon(b, cx, cy + Math.round(R * 0.02), Math.round(R * 1.12))}`;
   return `<g${attrs}>${body}</g>`;
 }
 
-/** Матовая стеклянная плитка (как конверты в референсе): светлая кромка, градиентная грань, блик сверху. */
+/** Матовая стеклянная плитка: светлая кромка, градиентная грань, блик сверху. */
 function tile(b, cx, cy, S, { rot = 0, opacity = 1 } = {}) {
   const x = Math.round(cx - S / 2), y = Math.round(cy - S / 2), r = Math.round(S * 0.27), pad = Math.round(S * 0.05);
   return `<g transform="rotate(${rot} ${cx} ${cy})"${opacity < 1 ? ` opacity="${opacity}"` : ''}><g filter="url(#tileShadow)">
@@ -158,30 +171,35 @@ ${icon(b, cx, cy + Math.round(S * 0.01), Math.round(S * 0.66))}</g>`;
 
 function defs() {
   return `<defs>
-<linearGradient id="iInk" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="200"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d3dfff"/></linearGradient>
-<linearGradient id="cFace" x1=".12" y1=".02" x2=".88" y2=".98"><stop offset="0" stop-color="#d4deff"/><stop offset=".3" stop-color="#7f9bff"/><stop offset="1" stop-color="#2b46ee"/></linearGradient>
+<linearGradient id="iInk" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="200"><stop offset="0" stop-color="${T.ink[0]}"/><stop offset="1" stop-color="${T.ink[1]}"/></linearGradient>
+<linearGradient id="cFace" x1=".12" y1=".02" x2=".88" y2=".98"><stop offset="0" stop-color="${T.face[0]}"/><stop offset=".3" stop-color="${T.face[1]}"/><stop offset="1" stop-color="${T.face[2]}"/></linearGradient>
 <linearGradient id="cRim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".5" stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity=".7"/></linearGradient>
-<linearGradient id="cInner" x1=".1" y1=".05" x2=".9" y2=".95"><stop offset="0" stop-color="#2540e6"/><stop offset="1" stop-color="#6d8cff"/></linearGradient>
+<linearGradient id="cInner" x1=".1" y1=".05" x2=".9" y2=".95"><stop offset="0" stop-color="${T.inner[0]}"/><stop offset="1" stop-color="${T.inner[1]}"/></linearGradient>
 <radialGradient id="gloss" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
 <linearGradient id="tRim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".85"/><stop offset=".55" stop-color="#cdd9ff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity=".6"/></linearGradient>
-<linearGradient id="tFace" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7d99ff"/><stop offset="1" stop-color="#2a45ee"/></linearGradient>
+<linearGradient id="tFace" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${T.tile[0]}"/><stop offset="1" stop-color="${T.tile[1]}"/></linearGradient>
 <linearGradient id="tGloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
-<linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity=".1"/></linearGradient>
+<linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${T.glass[0]}" stop-opacity="${T.glass[1]}"/><stop offset="1" stop-color="${T.glass[0]}" stop-opacity="${T.glass[2]}"/></linearGradient>
 <linearGradient id="ray" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".32"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
 <filter id="blur12" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"/></filter>
 <filter id="blur18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
 <filter id="blur40" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="40"/></filter>
-<filter id="drop" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="7" result="b"/><feOffset in="b" dx="0" dy="9" result="o"/><feFlood flood-color="#0a1250" flood-opacity=".5" result="f"/><feComposite in="f" in2="o" operator="in" result="s"/><feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-<filter id="tileShadow" x="-25%" y="-25%" width="150%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="22" result="b"/><feOffset in="b" dx="0" dy="26" result="o"/><feFlood flood-color="#0a1250" flood-opacity=".4" result="f"/><feComposite in="f" in2="o" operator="in" result="s"/><feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="drop" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="7" result="b"/><feOffset in="b" dx="0" dy="9" result="o"/><feFlood flood-color="#000" flood-opacity=".5" result="f"/><feComposite in="f" in2="o" operator="in" result="s"/><feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="tileShadow" x="-25%" y="-25%" width="150%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="22" result="b"/><feOffset in="b" dx="0" dy="26" result="o"/><feFlood flood-color="#000" flood-opacity=".4" result="f"/><feComposite in="f" in2="o" operator="in" result="s"/><feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="ink"><feColorMatrix type="matrix" values="0 0 0 0 .04  0 0 0 0 .04  0 0 0 0 .06  0 0 0 1 0"/></filter>
 </defs>`;
 }
 
 function backdrop(tone) {
   if (tone === 'dark') {
     let flutes = '';
-    for (let x = 0; x < W; x += 24) flutes += `<rect x="${x}" y="0" width="11" height="${H}" fill="#000" fill-opacity=".28"/>`;
-    return `<defs><radialGradient id="g1" cx=".8" cy="1" r=".85"><stop offset="0" stop-color="#2f56ff" stop-opacity=".95"/><stop offset=".5" stop-color="#1a2fd0" stop-opacity=".4"/><stop offset="1" stop-color="#1a2fd0" stop-opacity="0"/></radialGradient><radialGradient id="g2" cx=".05" cy=".0" r=".5"><stop offset="0" stop-color="#2447e6" stop-opacity=".3"/><stop offset="1" stop-color="#2447e6" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="#06070b"/><rect width="${W}" height="${H}" fill="url(#g1)"/><rect width="${W}" height="${H}" fill="url(#g2)"/>${flutes}`;
+    for (let x = 0; x < W; x += 24) flutes += `<rect x="${x}" y="0" width="11" height="${H}" fill="#fff" fill-opacity=".022"/>`;
+    return `<defs><radialGradient id="g1" cx=".8" cy="1" r=".9"><stop offset="0" stop-color="#5a6070" stop-opacity=".55"/><stop offset="1" stop-color="#5a6070" stop-opacity="0"/></radialGradient><radialGradient id="g2" cx=".05" cy="0" r=".45"><stop offset="0" stop-color="#2447e6" stop-opacity=".28"/><stop offset="1" stop-color="#2447e6" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="#07080b"/><rect width="${W}" height="${H}" fill="url(#g1)"/><rect width="${W}" height="${H}" fill="url(#g2)"/>${flutes}`;
   }
+  if (tone === 'light') {
+    return `<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fafafb"/><stop offset="1" stop-color="#d3d6de"/></linearGradient><radialGradient id="vig" cx=".85" cy="1" r=".9"><stop offset="0" stop-color="#8d93a3" stop-opacity=".45"/><stop offset="1" stop-color="#8d93a3" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="url(#bg)"/><rect width="${W}" height="${H}" fill="url(#vig)"/>`;
+  }
+  // blue — прежний синий фон с лучами
   return `<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5f84ff"/><stop offset="1" stop-color="#1727c4"/></linearGradient><radialGradient id="vig" cx=".85" cy="1" r=".9"><stop offset="0" stop-color="#0a1250" stop-opacity=".5"/><stop offset="1" stop-color="#0a1250" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="url(#bg)"/><rect width="${W}" height="${H}" fill="url(#vig)"/>
 <g filter="url(#blur12)"><polygon points="260,0 420,0 140,1000 -40,1000" fill="url(#ray)" opacity=".7"/><polygon points="560,0 640,0 420,1000 330,1000" fill="url(#ray)" opacity=".5"/><polygon points="900,0 1060,0 800,1000 650,1000" fill="url(#ray)" opacity=".35"/></g>`;
 }
@@ -189,16 +207,16 @@ function backdrop(tone) {
 /* ── текст и плашки ── */
 const isTg = (s) => /^t\.me\//i.test(s);
 
-/** Плашка со ссылкой как в референсе: белый круг со значком Telegram + стеклянная капсула. */
+/** Плашка со ссылкой: круг со значком Telegram + стеклянная капсула. */
 function linkPill(b, x, y, { center = false, size = 38 } = {}) {
   const label = displayLink(b.link), tg = isTg(b.link), h = 92;
   const w = Math.round([...label].length * size * 0.6 + (tg ? 150 : 90));
   const left = center ? Math.round(x - w / 2) : x;
-  const stroke = ' stroke="#fff" stroke-opacity=".4" stroke-width="2"';
-  if (!tg) return { w, h, svg: `<rect x="${left}" y="${y}" width="${w}" height="${h}" rx="46" fill="url(#glass)"${stroke}/><text x="${left + w / 2}" y="${y + 62}" text-anchor="middle" font-family="${FONT}" font-weight="600" font-size="${size}" fill="#fff">${esc(label)}</text>` };
+  const stroke = ` stroke="${T.gStroke}" stroke-opacity="${T.gOp}" stroke-width="2"`;
+  if (!tg) return { w, h, svg: `<rect x="${left}" y="${y}" width="${w}" height="${h}" rx="46" fill="url(#glass)"${stroke}/><text x="${left + w / 2}" y="${y + 62}" text-anchor="middle" font-family="${FONT}" font-weight="600" font-size="${size}" fill="${T.fg}">${esc(label)}</text>` };
   return {
     w, h,
-    svg: `<rect x="${left + 40}" y="${y}" width="${w - 40}" height="${h}" rx="46" fill="url(#glass)"${stroke}/><circle cx="${left + 46}" cy="${y + 46}" r="46" fill="#fff"/><path transform="translate(${left + 26} ${y + 27}) scale(1.1)" d="M0 14 L36 0 L29 36 L19 26 L10 32 L10 20 Z" fill="${BLUE}"/><text x="${left + 114}" y="${y + 62}" font-family="${FONT}" font-weight="600" font-size="${size}" fill="#fff">${esc(label)}</text>`,
+    svg: `<rect x="${left + 40}" y="${y}" width="${w - 40}" height="${h}" rx="46" fill="url(#glass)"${stroke}/><circle cx="${left + 46}" cy="${y + 46}" r="46" fill="${T.dotBg}"/><path transform="translate(${left + 26} ${y + 27}) scale(1.1)" d="M0 14 L36 0 L29 36 L19 26 L10 32 L10 20 Z" fill="${T.dotFg}"/><text x="${left + 114}" y="${y + 62}" font-family="${FONT}" font-weight="600" font-size="${size}" fill="${T.fg}">${esc(label)}</text>`,
   };
 }
 
@@ -220,16 +238,16 @@ function head(b, o) {
   else first = o.top + fs * 0.8;
   const tspans = lines.map((l, i) => `<tspan x="${o.x}" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
   return { fs, n, first, last: first + (n - 1) * lh, bottom: first + (n - 1) * lh + fs * 0.25,
-    svg: `<text font-family="${FONT}" font-weight="700" font-size="${fs}" fill="#fff" text-anchor="${o.anchor || 'start'}" letter-spacing="${(-fs * 0.025).toFixed(1)}">${tspans}</text>` };
+    svg: `<text font-family="${FONT}" font-weight="700" font-size="${fs}" fill="${T.fg}" text-anchor="${o.anchor || 'start'}" letter-spacing="${(-fs * 0.025).toFixed(1)}">${tspans}</text>` };
 }
 
-/** Подзаголовок серо-белым, до 2 строк. first — базовая линия первой строки. */
+/** Подзаголовок приглушённым цветом, до 2 строк. first — базовая линия первой строки. */
 function sub(b, x, first, { anchor = 'start', maxChars = 30, size = 40 } = {}) {
   if (!b.sub) return { svg: '', n: 0, lh: Math.round(size * 1.35), bottom: first - size };
   const lines = wrapHeadline(b.sub, maxChars).slice(0, 2), lh = Math.round(size * 1.35);
   const ts = lines.map((l, i) => `<tspan x="${x}" y="${Math.round(first + i * lh)}">${esc(l)}</tspan>`).join('');
   return { n: lines.length, lh, bottom: first + (lines.length - 1) * lh + 14,
-    svg: `<text font-family="${FONT}" font-weight="500" font-size="${size}" fill="#fff" fill-opacity=".68" text-anchor="${anchor}">${ts}</text>` };
+    svg: `<text font-family="${FONT}" font-weight="500" font-size="${size}" fill="${T.fg}" fill-opacity=".68" text-anchor="${anchor}">${ts}</text>` };
 }
 
 /* ── композиции ── */
@@ -240,7 +258,7 @@ function coinLayout(b, tone) {
   const h = head(b, { x: 96, mid: hasSub ? 390 : 440, maxChars: 13, maxW: 660, maxSize: 124, maxH: 360 });
   const s = sub(b, 96, Math.round(h.bottom + 56), { maxChars: 27 });
   const pill = b.link ? linkPill(b, 96, 800) : null;
-  const glow = tone === 'dark' ? `<circle cx="1160" cy="560" r="420" fill="#2f56ff" opacity=".35" filter="url(#blur40)"/>` : `<ellipse cx="1190" cy="890" rx="310" ry="46" fill="#050a40" opacity=".4" filter="url(#blur18)"/>`;
+  const glow = tone === 'dark' ? `<circle cx="1160" cy="560" r="420" fill="${T.glow}" opacity="${T.glowOp}" filter="url(#blur40)"/>` : `<ellipse cx="1190" cy="890" rx="310" ry="46" fill="#000" opacity=".35" filter="url(#blur18)"/>`;
   return `${glow}${coin(b, 770, 190, 150, { blur: 12, opacity: 0.55 })}${coin(b, 1390, 250, 100, { blur: 12, opacity: 0.45 })}${coin(b, 1160, 500, 310)}${h.svg}${s.svg}${pill?.svg || ''}`;
 }
 
@@ -253,7 +271,7 @@ function tilesLayout(b, tone) {
   const bottom = pill ? flow + 34 + pill.h : flow;
   const top = Math.max(560, Math.round(bottom + 40));
   const S = 560, cy = top + Math.round(S * 0.5);
-  const glow = tone === 'dark' ? `<circle cx="750" cy="${top + 300}" r="420" fill="#2f56ff" opacity=".35" filter="url(#blur40)"/>` : '';
+  const glow = tone === 'dark' ? `<circle cx="750" cy="${top + 300}" r="420" fill="${T.glow}" opacity="${T.glowOp}" filter="url(#blur40)"/>` : '';
   return `${glow}${tile(b, 215, cy + 40, 430, { rot: -11, opacity: 0.92 })}${tile(b, 1285, cy + 40, 430, { rot: 11, opacity: 0.92 })}${tile(b, 750, cy, S)}${h.svg}${s.svg}${pill?.svg || ''}`;
 }
 
@@ -264,7 +282,7 @@ function cornerLayout(b, tone) {
   const s = b.sub ? sub(b, 96, lastBase - 52, { maxChars: 30, size: 38 }) : null;
   const headLast = s ? lastBase - 52 * Math.max(s.n, 1) - 70 : lastBase;
   const h = head(b, { x: 96, last: headLast, maxChars: 14, maxW: 690, maxSize: 118, maxH: 330 });
-  const glow = tone === 'dark' ? `<circle cx="1180" cy="300" r="430" fill="#2f56ff" opacity=".35" filter="url(#blur40)"/>` : '';
+  const glow = tone === 'dark' ? `<circle cx="1180" cy="300" r="430" fill="${T.glow}" opacity="${T.glowOp}" filter="url(#blur40)"/>` : '';
   return `${glow}${coin(b, 1480, 640, 120, { blur: 12, opacity: 0.5 })}${coin(b, 1180, 280, 400)}${h.svg}${s?.svg || ''}${pill?.svg || ''}`;
 }
 
@@ -275,10 +293,10 @@ function stepsLayout(b, tone) {
   const rows = b.points.map((p, i) => {
     const y = y0 + i * 124;
     const ps = Math.max(26, Math.min(42, Math.floor(520 / ([...p].length * 0.6))));
-    return `<rect x="96" y="${y}" width="760" height="100" rx="30" fill="url(#glass)" stroke="#fff" stroke-opacity=".4" stroke-width="2"/><circle cx="160" cy="${y + 50}" r="33" fill="${tone === 'dark' ? BLUE : BLACK}"/><text x="160" y="${y + 62}" text-anchor="middle" font-family="${FONT}" font-weight="700" font-size="34" fill="#fff">${i + 1}</text><text x="222" y="${Math.round(y + 50 + ps * 0.35)}" font-family="${FONT}" font-weight="600" font-size="${ps}" fill="#fff">${esc(p)}</text>`;
+    return `<rect x="96" y="${y}" width="760" height="100" rx="30" fill="url(#glass)" stroke="${T.gStroke}" stroke-opacity="${T.gOp}" stroke-width="2"/><circle cx="160" cy="${y + 50}" r="33" fill="${tone === 'dark' ? BLUE : BLACK}"/><text x="160" y="${y + 62}" text-anchor="middle" font-family="${FONT}" font-weight="700" font-size="34" fill="#fff">${i + 1}</text><text x="222" y="${Math.round(y + 50 + ps * 0.35)}" font-family="${FONT}" font-weight="600" font-size="${ps}" fill="${T.fg}">${esc(p)}</text>`;
   }).join('');
   const pill = b.link ? linkPill(b, 96, 868) : null;
-  const glow = tone === 'dark' ? `<circle cx="1230" cy="520" r="400" fill="#2f56ff" opacity=".35" filter="url(#blur40)"/>` : '';
+  const glow = tone === 'dark' ? `<circle cx="1230" cy="520" r="400" fill="${T.glow}" opacity="${T.glowOp}" filter="url(#blur40)"/>` : '';
   return `${glow}${coin(b, 1100, 160, 90, { blur: 12, opacity: 0.45 })}${coin(b, 1250, 540, 310)}${h.svg}${rows}${pill?.svg || ''}`;
 }
 
@@ -295,7 +313,8 @@ export function pickStyle(b) {
 export function bannerSvg(spec) {
   seq = 0;
   const b = normalizeBanner(spec);
-  const tone = b.layout === 'dark' ? 'dark' : 'light';
+  const tone = PAL[b.layout] ? b.layout : 'dark';
+  T = PAL[tone];
   const body = { coin: coinLayout, tiles: tilesLayout, corner: cornerLayout, steps: stepsLayout }[pickStyle(b)](b, tone);
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${defs()}${backdrop(tone)}${body}${logo()}${b.pill ? tagPill(b.pill, tone) : ''}</svg>`;
 }
