@@ -3,10 +3,11 @@ import { InlineKeyboard } from 'grammy';
 import { posts, getRuntime } from './store.js';
 import { sendPost } from './tgsend.js';
 import { presets, fmt } from './tz.js';
-import { OBJECTS, WORDS } from './prompts.js';
+import { OBJECTS, WORDS, LAYOUTS } from './prompts.js';
 
 export const cb = (id, act, arg) => `p:${id}:${act}${arg !== undefined ? ':' + arg : ''}`;
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const LAYOUT_NAME = { dark: 'чёрный', light: 'белый', blue: 'синий' };
 
 export function controlText(post, rt, note = '') {
   const lines = [`<b>Пост #${post.id}</b> · ${{ draft: 'черновик', scheduled: 'запланирован', published: 'опубликован', cancelled: 'отменён' }[post.status] || post.status}`];
@@ -27,7 +28,7 @@ export function menuKeyboard(post, menu, rt) {
   }
   if (menu === 'banner') {
     const b = post.banner || {};
-    return k.text(`Фон: ${b.layout === 'dark' ? 'тёмный' : 'синий'} ⇄`, cb(id, 'bl')).text(`Иконка: ${b.object} ⇄`, cb(id, 'bo')).row()
+    return k.text(`Фон: ${LAYOUT_NAME[b.layout] || 'чёрный'} ⇄`, cb(id, 'bl')).text(`Иконка: ${b.object} ⇄`, cb(id, 'bo')).row()
       .text('Заголовок', cb(id, 'bh')).text('Плашка', cb(id, 'bp')).row()
       .text('Ссылка', cb(id, 'bk')).text('← Назад', cb(id, 'back'));
   }
@@ -61,4 +62,4 @@ export async function showDraft(api, chatId, postId, { menu = 'main', note = '' 
 }
 
 export const cycle = (obj, cur) => { const k = Object.keys(obj); return k[(k.indexOf(cur) + 1) % k.length]; };
-export { OBJECTS, WORDS };
+export { OBJECTS, WORDS, LAYOUTS };
