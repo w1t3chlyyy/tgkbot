@@ -1,6 +1,6 @@
 import { chatJSON } from './qwen.js';
 import { systemPrompt, planPrompt, DEFAULT_STYLE } from './prompts.js';
-import { sanitizeHtml, visibleLen, availableEmoji, restrictEmoji } from './html.js';
+import { sanitizeHtml, visibleLen, availableEmoji, restrictEmoji, stripTags } from './html.js';
 import { normalizeBanner } from './banner.js';
 import { fixHandles } from './handles.js';
 import { getSetting, getRuntime } from './store.js';
@@ -16,6 +16,21 @@ function allowedUrls(links, material) {
   const set = new Set(Object.values(links).map((u) => u.replace(/\/$/, '')));
   for (const m of material.matchAll(/https?:\/\/[^\s"'<>)]+/g)) set.add(m[0].replace(/[.,;]+$/, '').replace(/\/$/, ''));
   return set;
+}
+
+/** Страховка: Qwen часто ставит star/gem на посты не про Stars/Premium. Если иконка не по смыслу — подбираем по тексту. */
+function fixIcon(obj, text) {
+  const t = text.toLowerCase();
+  if (obj === 'star' && !/stars|звёзд|звезд/.test(t)) obj = '';
+  if (obj === 'gem' && !/premium|премиум/.test(t)) obj = '';
+  if (obj) return obj;
+  if (/видео|съ[её]мк|оператор/.test(t)) return 'play';
+  if (/ваканси|набор|команд|продаж/.test(t)) return 'team';
+  if (/кейс|результат|клиент/.test(t)) return 'case';
+  if (/конкурс|итог|приз|рулетк/.test(t)) return 'trophy';
+  if (/промокод|скидк/.test(t)) return 'tag';
+  if (/возражен|диалог/.test(t)) return 'chat';
+  return 'rocket';
 }
 
 function normalize(raw, { links, material, fallbackBanner = {}, prev = null, emojiSet = null }) {
@@ -52,7 +67,8 @@ export async function generatePost({ topic, brief = '', refs = [], overrides = {
   const raw = await chatJSON([{ role: 'system', content: sys }, { role: 'user', content: user }]);
   const lockedBanner = Object.fromEntries(Object.entries(overrides.banner || {}).filter(([, v]) => v));
   const out = normalize(raw, { links: rt.links, material, emojiSet });
-  out.banner = normalizeBanner({ ...out.banner, ...lockedBanner });
+  out.banner = normalizeBanner({ ...out.banner, object: fixIcon(out.banner.object, `${topic} ${stripTags(out.html)}`) });
+  out.banner = normalizeBanner({ ...out.banner, ...lockedBanner }); // ручной выбор админа перебивает Qwen и fixIcon
   return out;
 }
 
