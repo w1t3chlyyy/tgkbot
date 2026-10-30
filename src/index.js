@@ -18,4 +18,13 @@ await setupMenu(bot);
 
 const stop = () => { server.close(); bot.stop(); process.exit(0); };
 process.once('SIGINT', stop); process.once('SIGTERM', stop);
-await bot.start({ onStart: (me) => console.log(`[bot] @${me.username} запущен (polling), админы: ${[...cfg.adminIds].join(', ')}`) });
+for (;;) {
+  try {
+    await bot.start({ onStart: (me) => console.log(`[bot] @${me.username} запущен (polling), админы: ${[...cfg.adminIds].join(', ')}`) });
+    break;
+  } catch (e) {
+    if (e.error_code !== 409) throw e;
+    console.warn('[bot] 409: бота опрашивает другая копия, повтор через 5 с');
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+}
