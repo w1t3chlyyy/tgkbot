@@ -97,7 +97,16 @@ async function renderPlan() {
   $('#gen').onclick = (e) => run(e.target, async () => { e.target.textContent = 'Думаю…'; try { await api('/plan/generate', { method: 'POST', body: { days: +$('#days').value, focus: $('#focus').value } }); } finally { e.target.textContent = 'Составить план'; } renderPlan(); });
   view.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => run(b, async () => {
     const id = b.closest('.card').dataset.id;
-    if (b.dataset.a === 'make') { b.textContent = 'Пишу…'; await api(`/plan/${id}/make`, { method: 'POST', body: {} }); toast('Пост в чате с ботом'); renderPlan(); }
+    if (b.dataset.a === 'make') {
+      b.textContent = 'Пишу…';
+      try {
+        const r = await api(`/plan/${id}/make`, { method: 'POST', body: {} });
+        toast(r?.sentToChat === false ? 'Пост сделан (не удалось отправить в чат)' : 'Пост в чате с ботом');
+      } finally {
+        b.textContent = 'Сделать сейчас';
+      }
+      renderPlan();
+    }
     else { await api(`/plan/${id}`, { method: 'DELETE' }); renderPlan(); }
   })));
 }

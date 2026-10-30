@@ -1,16 +1,10 @@
-FROM node:22-alpine
-
+FROM node:22-slim
 WORKDIR /app
-
 COPY package*.json ./
-RUN npm install
-
-COPY . .
-RUN npm run build
-
+RUN npm ci --omit=dev
+COPY src ./src
+COPY public ./public
+COPY assets ./assets
+ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
-
-ENV PORT=3000
-ENV HOST=0.0.0.0
-
-CMD ["npm", "run", "start"]
+CMD ["node", "src/index.js"]
