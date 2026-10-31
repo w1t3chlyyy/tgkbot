@@ -3,5 +3,8 @@
   "framework": null,
   "functions": {
     "api/**/*.js": { "maxDuration": 60, "includeFiles": "assets/**" }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api" }
+  ]
 }
