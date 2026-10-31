@@ -16,7 +16,7 @@ async function run(btn, fn) { if (btn) btn.disabled = true; try { await fn(); } 
 
 const TITLES = { plan: 'Контент-план', new: 'Новый пост', queue: 'Посты', settings: 'Настройки' };
 document.querySelectorAll('#tabs button').forEach((b) => (b.onclick = () => go(b.dataset.tab)));
-function go(t) { tab = t; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t)); $('#title').textContent = TITLES[t]; ({ queue: renderQueue, new: renderNew, plan: renderPlan, settings: renderSettings })[t](); }
+function go(t) { tab = t; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t)); $('#title').textContent = TITLES[t]; Promise.resolve(({ queue: renderQueue, new: renderNew, plan: renderPlan, settings: renderSettings })[t]()).catch((e) => toast(e.message, true)); }
 
 const STATUS = { draft: 'в чате', scheduled: 'в плане', published: 'опубликован', failed: 'ошибка', cancelled: 'убран', publishing: 'публикуется' };
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -31,11 +31,12 @@ async function renderQueue() {
     <div class="row"><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span><span class="muted small grow">#${p.id}</span></div>
     <div class="excerpt">${esc(plain(p.html))}</div>
     ${p.error ? `<div class="small" style="color:var(--red)">${esc(p.error)}</div>` : ''}
-    <div class="row"><button class="b s" data-a="chat">Прислать в чат</button><button class="b s d" data-a="del">Удалить</button></div></div>`).join('');
+    <div class="row"><button class="b s" data-a="chat">Прислать в чат</button>${p.status !== 'published' && p.status !== 'publishing' ? '<button class="b s w" data-a="pub">Опубликовать</button><button class="b s d" data-a="del">Удалить</button>' : ''}</div></div>`).join('');
   view.querySelectorAll('.thumb').forEach(async (img) => { try { img.src = URL.createObjectURL(await api('/banner', { method: 'POST', body: { spec: JSON.parse(img.dataset.spec) }, blob: true })); } catch { img.remove(); } });
   view.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => run(b, async () => {
     const id = b.closest('.card').dataset.id, a = b.dataset.a;
     if (a === 'chat') { await api(`/posts/${id}/chat`, { method: 'POST' }); toast('Прислал в чат'); }
+    if (a === 'pub') { if (!confirm('Опубликовать в канал сейчас?')) return; await api(`/posts/${id}/publish`, { method: 'POST' }); toast('Опубликовано'); renderQueue(); }
     if (a === 'del') { if (!confirm('Удалить пост?')) return; await api(`/posts/${id}`, { method: 'DELETE' }); renderQueue(); }
   })));
 }
@@ -49,7 +50,7 @@ function renderNew() {
   <label>Тезисы (необязательно)</label><textarea id="brief" placeholder="Что важно сказать. Qwen не будет выдумывать цифры.">${esc(form.brief)}</textarea>
   <label>Материал из баз (каталог, кейсы, партнёры, проекты, портфолио…)</label>
   <div id="chips">${form.refs.map((r, i) => `<span class="chip">${esc(r.label)}<button data-rm="${i}">✕</button></span>`).join('')}</div>
-  ${srcs.length ? `<div class="row"><select id="src" class="grow"><option value="">Выбери таблицу…</option>${srcs.map((s) => `<option value="${s.db}|${s.table}" ${form.srcKey === s.db + '|' + s.table ? 'selected' : ''}>${esc(s.db)} · ${esc(s.table)}</option>`).join('')}</select></div>
+  ${srcs.length ? `<div class="row"><select id="src" class="grow"><option value="">Выбери таблицу…</option>${srcs.map((s) => `<option value="${esc(s.db)}|${esc(s.table)}" ${form.srcKey === s.db + '|' + s.table ? 'selected' : ''}>${esc(s.db)} · ${esc(s.table)}</option>`).join('')}</select></div>
   <div class="row nw" style="margin-top:8px"><input id="q" class="grow" placeholder="Поиск по названию" value="${esc(form.q)}"><button class="b g" id="find">Найти</button></div>
   <div id="rows">${form.rows.map((r) => `<div class="src"><div class="t"><b>${esc(r.label)}</b><span class="muted small">${esc(r.preview).slice(0, 70)}</span></div><button class="b s" data-add="${esc(r.id)}">+</button></div>`).join('')}</div>`
     : '<div class="muted small">Базы не подключены: добавь DATABASES в .env.</div>'}
@@ -62,16 +63,18 @@ function renderNew() {
   const save = () => { form.topic = $('#topic').value; form.brief = $('#brief').value; form.layout = $('#layout').value; form.object = $('#object').value; if ($('#src')) { form.srcKey = $('#src').value; form.q = $('#q').value; } };
   view.querySelectorAll('input,textarea,select').forEach((e) => e.addEventListener('change', save));
   view.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => { save(); form.refs.splice(+b.dataset.rm, 1); renderNew(); }));
-  view.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { save(); const r = form.rows.find((x) => String(x.id) === b.dataset.add); const [db, table] = form.srcKey.split('|'); form.refs.push({ db, table, id: r.id, label: r.label }); renderNew(); }));
+  view.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { save(); const r = form.rows.find((x) => String(x.id) === b.dataset.add); if (!r || !form.srcKey) return; if (form.refs.length >= 8) return toast('Не больше 8 материалов', true); const [db, table] = form.srcKey.split('|'); form.refs.push({ db, table, id: r.id, label: r.label }); renderNew(); }));
   $('#find')?.addEventListener('click', (e) => run(e.target, async () => { save(); if (!form.srcKey) return toast('Выбери таблицу', true); const [db, table] = form.srcKey.split('|'); form.rows = await api(`/sources/rows?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}&q=${encodeURIComponent(form.q)}`); renderNew(); }));
-  $('#src')?.addEventListener('change', () => { save(); form.rows = []; $('#find').click(); });
+  $('#src')?.addEventListener('change', () => { save(); form.rows = []; form.srcKey ? $('#find').click() : renderNew(); });
   $('#go').onclick = (e) => run(e.target, async () => {
     save(); if (!form.topic.trim()) return toast('Укажи тему', true);
     e.target.textContent = 'Пишу пост…';
+    let r;
     try {
-      await api('/posts/generate', { method: 'POST', body: { topic: form.topic, brief: form.brief, refs: form.refs.map(({ db, table, id }) => ({ db, table, id })), banner: { layout: form.layout, object: form.object, word: form.word } } });
+      r = await api('/posts/generate', { method: 'POST', body: { topic: form.topic, brief: form.brief, refs: form.refs.map(({ db, table, id }) => ({ db, table, id })), banner: { layout: form.layout, object: form.object, word: form.word } } });
     } finally { e.target.textContent = 'Сделать пост и прислать в чат'; }
     Object.assign(form, { topic: '', brief: '', refs: [], rows: [] });
+    if (r?.sentToChat === false) { toast('Пост создан, но в чат не отправился. Открой вкладку «Посты» → «Прислать в чат»', true); renderNew(); return; }
     toast('Готово! Пост в чате с ботом'); setTimeout(() => tg?.close?.(), 1400);
   });
 }
@@ -98,13 +101,11 @@ async function renderPlan() {
   view.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => run(b, async () => {
     const id = b.closest('.card').dataset.id;
     if (b.dataset.a === 'make') {
-      b.textContent = 'Пишу…';
+      const old = b.textContent; b.textContent = 'Пишу…';
       try {
         const r = await api(`/plan/${id}/make`, { method: 'POST', body: {} });
-        toast(r?.sentToChat === false ? 'Пост сделан (не удалось отправить в чат)' : 'Пост в чате с ботом');
-      } finally {
-        b.textContent = 'Сделать сейчас';
-      }
+        toast(r?.sentToChat === false ? 'Пост сделан (не удалось отправить в чат)' : 'Пост в чате с ботом', r?.sentToChat === false);
+      } catch (e) { b.textContent = old; renderPlan(); throw e; }
       renderPlan();
     }
     else { await api(`/plan/${id}`, { method: 'DELETE' }); renderPlan(); }
@@ -115,8 +116,10 @@ async function renderPlan() {
 function renderSettings() {
   const s = boot.settings;
   view.innerHTML = `<div class="card">
-    <label style="margin-top:0">Часовой пояс</label><input id="tz" value="${esc(s.tz)}">
+    <label style="margin-top:0">Канал для публикаций</label><input id="channel" placeholder="@канал или -100…" value="${esc(s.channel || '')}">
+    <label>Часовой пояс</label><input id="tz" value="${esc(s.tz)}">
     <div class="row"><div class="grow"><label>Авто-режим: делать пост на сегодня в</label><input id="daily" value="${esc(s.dailyTime)}"></div><div class="sw" style="padding-top:26px"><span>Авто</span><input type="checkbox" id="de" ${s.dailyEnabled ? 'checked' : ''}></div></div>
+    <label>Время публикации по умолчанию (для постов из плана)</label><input id="dtime" value="${esc(s.defaultTime)}">
     <div class="sw"><span>Премиум-эмодзи <span class="muted small">(в паке: ${boot.emojiCount})</span></span><input type="checkbox" id="ce" ${s.customEmoji ? 'checked' : ''}></div>
     <label>Пак премиум-эмодзи</label><div class="row"><input id="pack" class="grow" placeholder="t.me/addemoji/…"><button class="b g" id="loadpack">Загрузить</button></div>
     <label>Ссылки для кнопок (JSON)</label><textarea id="links">${esc(JSON.stringify(s.links, null, 2))}</textarea>
@@ -124,7 +127,7 @@ function renderSettings() {
     <div style="height:12px"></div><button class="b" style="width:100%" id="save">Сохранить</button></div>`;
   $('#save').onclick = (e) => run(e.target, async () => {
     let links; try { links = JSON.parse($('#links').value); } catch { throw new Error('Ссылки: некорректный JSON'); }
-    await api('/settings', { method: 'PUT', body: { tz: $('#tz').value, dailyTime: $('#daily').value, dailyEnabled: $('#de').checked, customEmoji: $('#ce').checked, stylePrompt: $('#style').value, links } });
+    await api('/settings', { method: 'PUT', body: { channel: $('#channel').value, tz: $('#tz').value, dailyTime: $('#daily').value, defaultTime: $('#dtime').value, dailyEnabled: $('#de').checked, customEmoji: $('#ce').checked, stylePrompt: $('#style').value, links } });
     boot = await api('/bootstrap'); toast('Сохранено');
   });
   $('#loadpack').onclick = (e) => run(e.target, async () => { const r = await api('/emoji/pack', { method: 'POST', body: { name: $('#pack').value } }); boot = await api('/bootstrap'); toast(`Загружено эмодзи: ${r.count}`); renderSettings(); });
