@@ -1,20 +1,25 @@
 import { cfg } from './config.js';
 
-export async function chatJSON(messages, { temperature = 0.7, maxTokens = 1800 } = {}) {
+async function call(messages, { temperature, maxTokens }) {
   const r = await fetch(`${cfg.qwen.base}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.qwen.key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: cfg.qwen.model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
-    }),
+    body: JSON.stringify({ model: cfg.qwen.model, messages, temperature, max_tokens: maxTokens, response_format: { type: 'json_object' } }),
+    signal: AbortSignal.timeout(40_000), // функция Vercel живёт 60 с: лучше понятная ошибка, чем обрыв
   });
   const text = await r.text();
-  if (!r.ok) throw new Error(`Qwen ${r.status}: ${text.slice(0, 300)}`);
-  const content = JSON.parse(text).choices?.[0]?.message?.content || '';
+  if (!r.ok) { const e = new Error(`Qwen ${r.status}: ${text.slice(0, 300)}`); e.status = r.status; throw e; }
+  return JSON.parse(text).choices?.[0]?.message?.content || '';
+}
+
+export async function chatJSON(messages, { temperature = 0.7, maxTokens = 1800 } = {}) {
+  let content;
+  try { content = await call(messages, { temperature, maxTokens }); }
+  catch (e) {
+    if (!(e.status === 429 || e.status >= 500)) throw e;
+    await new Promise((r) => setTimeout(r, 1000)); // один повтор при перегрузке API
+    content = await call(messages, { temperature, maxTokens });
+  }
   return parseLooseJSON(content);
 }
 
