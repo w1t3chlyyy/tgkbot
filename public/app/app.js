@@ -4,6 +4,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let boot = null, tab = 'plan';
+const planErr = {}; // id пункта → текст последней ошибки (показываем в карточке)
 const form = { topic: '', brief: '', refs: [], layout: '', object: '', word: '', srcKey: '', q: '', rows: [] };
 
 async function api(path, { method = 'GET', body, blob } = {}) {
@@ -11,7 +12,7 @@ async function api(path, { method = 'GET', body, blob } = {}) {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return blob ? r.blob() : r.json();
 }
-let tt; function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'show' + (err ? ' err' : ''); clearTimeout(tt); tt = setTimeout(() => (t.className = ''), 2800); }
+let tt; function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'show' + (err ? ' err' : ''); clearTimeout(tt); tt = setTimeout(() => (t.className = ''), err ? 10000 : 2800); }
 async function run(btn, fn) { if (btn) btn.disabled = true; try { await fn(); } catch (e) { toast(e.message, true); } finally { if (btn) btn.disabled = false; } }
 
 const TITLES = { plan: 'Контент-план', new: 'Новый пост', queue: 'Посты', settings: 'Настройки' };
@@ -88,6 +89,7 @@ async function renderPlan() {
   const label = { made: 'пост сделан', skipped: 'пропущен', failed: 'ошибка', making: 'готовлю…' };
   view.innerHTML = `${items.map((i) => `<div class="card" data-id="${i.id}"><div class="row"><span class="badge ${i.status === 'made' ? 'published' : i.status === 'failed' ? 'failed' : ''}">${label[i.status] || 'ждёт'}</span><span class="muted small">${esc(i.day)}</span></div>
       <div style="font-weight:700;margin:8px 0 4px">${esc(i.topic)}</div><div class="excerpt">${esc(i.brief)}</div>
+      ${planErr[i.id] ? `<div class="small" style="color:var(--red);margin-bottom:8px;word-break:break-word">⚠️ ${esc(planErr[i.id])}</div>` : ''}
       <div class="row"><button class="b s w" data-a="make">${i.status === 'made' ? 'Сделать заново' : 'Сделать сейчас'}</button><button class="b s d" data-a="del">Убрать</button></div></div>`).join('') || '<div class="card muted">План пуст. Вставь план ниже или пришли его боту.</div>'}
     <div class="card"><b>Загрузить свой план</b>
     <div class="muted small" style="margin:4px 0 8px">Вставь текст: по строке или абзацу на пост, с датами или без. ${mode}</div>
@@ -104,8 +106,9 @@ async function renderPlan() {
       const old = b.textContent; b.textContent = 'Пишу…';
       try {
         const r = await api(`/plan/${id}/make`, { method: 'POST', body: {} });
+        delete planErr[id];
         toast(r?.sentToChat === false ? 'Пост сделан (не удалось отправить в чат)' : 'Пост в чате с ботом', r?.sentToChat === false);
-      } catch (e) { b.textContent = old; renderPlan(); throw e; }
+      } catch (e) { b.textContent = old; planErr[id] = e.message; await renderPlan(); throw e; }
       renderPlan();
     }
     else { await api(`/plan/${id}`, { method: 'DELETE' }); renderPlan(); }
