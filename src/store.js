@@ -68,9 +68,14 @@ export const posts = {
   async due() {
     return db.select('posts', `status=eq.scheduled&scheduled_at=lte.${new Date().toISOString()}&order=scheduled_at.asc&limit=10`);
   },
-  // атомарно «забираем» пост, чтобы не опубликовать дважды
+  // атомарно «забираем» запланированный пост (cron), чтобы не опубликовать дважды
   async claim(id) {
     const r = await db.update('posts', `id=eq.${Number(id)}&status=eq.scheduled`, { status: 'publishing' });
+    return r?.[0] || null;
+  },
+  // то же для ручной публикации (кнопка в боте / мини-приложение): двойной тап не даёт дубль
+  async claimPublish(id) {
+    const r = await db.update('posts', `id=eq.${Number(id)}&status=in.(draft,scheduled,failed)`, { status: 'publishing' });
     return r?.[0] || null;
   },
 };
@@ -98,7 +103,13 @@ let emojiMap = null, emojiAt = 0;
 const base = (e) => e.replace(/\uFE0F/g, '');
 export async function loadEmojiMap(force = false) {
   if (emojiMap && !force && Date.now() - emojiAt < 60_000) return emojiMap;
-  const rows = await db.select('emoji', 'order=pack.asc,idx.asc&limit=5000');
+  const rows = [];
+  // Supabase отдаёт максимум 1000 строк за запрос — листаем страницами
+  for (let off = 0; off < 5000; off += 1000) {
+    const part = await db.select('emoji', `order=pack.asc,idx.asc&limit=1000&offset=${off}`);
+    rows.push(...part);
+    if (part.length < 1000) break;
+  }
   emojiMap = new Map(); emojiAt = Date.now();
   for (const r of rows) {
     const k = base(r.emoji);
