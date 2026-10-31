@@ -7,6 +7,7 @@ export function rest({ url, key }) {
       method,
       headers: prefer ? { ...headers, Prefer: prefer } : headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000), // без таймаута зависшая база съедает всё время функции
     });
     const text = await r.text();
     if (!r.ok) throw new Error(`Supabase ${method} ${path.split('?')[0]} → ${r.status}: ${text.slice(0, 300)}`);
@@ -22,7 +23,7 @@ export function rest({ url, key }) {
     insertIgnore: (table, row, onConflict) =>
       req('POST', `/${table}?on_conflict=${onConflict}`, { body: row, prefer: 'resolution=ignore-duplicates,return=representation' }),
     async openapi() {
-      const r = await fetch(base + '/', { headers });
+      const r = await fetch(base + '/', { headers, signal: AbortSignal.timeout(20_000) });
       if (!r.ok) throw new Error(`Supabase openapi → ${r.status}`);
       return r.json();
     },
