@@ -49,14 +49,14 @@ export function createApp(bot, { defer = (p) => p.catch((e) => console.error('[d
   app.get('/', (_, res) => res.redirect('/app/'));
 
   /* ── публичные маршруты (свои способы защиты): вебхук Telegram, cron, разовая настройка ── */
- let hook; // создаём лениво: иначе grammy запрещает bot.start() (long polling)
-app.post('/api/webhook', async (req, res, next) => {
+  let hook; // создаём лениво: иначе grammy запрещает bot.start() (long polling)
+  app.post('/api/webhook', async (req, res, next) => {
     // сначала секрет: иначе посторонний мог бы «занять» номера update и заблокировать настоящие
     if (!safeEq(req.get('x-telegram-bot-api-secret-token') || '', webhookSecret())) return res.status(401).json({ error: 'bad secret' });
     const id = req.body?.update_id;
     try { if (id && !(await claimUpdate(id))) return res.sendStatus(200); } // Telegram повторил доставку — уже обработано
     catch (e) { console.error('[dedupe]', e.message); }
-        hook ||= webhookCallback(bot, 'express', { secretToken: webhookSecret(), timeoutMilliseconds: 55_000 });
+    hook ||= webhookCallback(bot, 'express', { secretToken: webhookSecret(), timeoutMilliseconds: 55_000 });
     return hook(req, res, next);
   });
 
@@ -125,18 +125,22 @@ app.post('/api/webhook', async (req, res, next) => {
 
   app.post('/api/posts/:id/chat', wrap(async (req, res) => { await showDraft(api, req.user.id, req.params.id); res.json({ ok: true }); }));
   app.post('/api/posts/:id/publish', wrap(async (req, res) => {
-    const p = await posts.get(req.params.id);
-    if (!p || p.status === 'published') throw new Error('Пост не найден или уже опубликован');
-    res.json(await publishPost(api, p));
+    const claimed = await posts.claimPublish(req.params.id); // атомарно: нельзя опубликовать дважды
+    if (!claimed) throw new Error('Пост не найден, уже опубликован или публикуется');
+    try { res.json(await publishPost(api, claimed)); }
+    catch (e) { await posts.update(claimed.id, { status: 'failed', error: e.message.slice(0, 500) }); throw e; }
   }));
   app.patch('/api/posts/:id', wrap(async (req, res) => {
+    const cur = await posts.get(req.params.id);
+    if (!cur) throw new Error('Пост не найден');
+    if (['published', 'publishing'].includes(cur.status)) throw new Error('Опубликованный пост править нельзя');
     const b = req.body || {}, patch = {};
     if (b.html != null) patch.html = sanitizeHtml(b.html);
     if (b.banner) patch.banner = normalizeBanner(b.banner);
     if (b.buttons) patch.buttons = b.buttons.slice(0, 3);
     if (b.scheduled_at !== undefined) patch.scheduled_at = b.scheduled_at;
     if (b.status && ['draft', 'scheduled', 'cancelled'].includes(b.status)) patch.status = b.status;
-    if (patch.status === 'scheduled' && !(patch.scheduled_at || (await posts.get(req.params.id))?.scheduled_at)) throw new Error('Сначала укажи время');
+    if (patch.status === 'scheduled' && !(patch.scheduled_at || cur.scheduled_at)) throw new Error('Сначала укажи время');
     res.json(await posts.update(req.params.id, patch));
   }));
   app.delete('/api/posts/:id', wrap(async (req, res) => {
@@ -170,9 +174,15 @@ app.post('/api/webhook', async (req, res, next) => {
     const item = await plan.get(req.params.id);
     if (!item) throw new Error('Пункт плана не найден');
     const rt = await getRuntime();
-    const gen = await generatePost({ topic: item.topic, brief: item.brief, refs: item.refs || [], overrides: { banner: req.body?.banner || {} } });
-    const [y, m, d] = item.day.split('-').map(Number); const [hh, mm] = rt.defaultTime.split(':').map(Number);
-    const post = await posts.create({ status: 'draft', topic: item.topic, brief: item.brief, refs: item.refs || [], html: gen.html, banner: gen.banner, buttons: gen.buttons, scheduled_at: zonedToUtc(y, m, d, hh, mm, rt.tz).toISOString(), admin_chat_id: req.user.id });
+    let post;
+    try {
+      const gen = await generatePost({ topic: item.topic, brief: item.brief, refs: item.refs || [], overrides: { banner: req.body?.banner || {} } });
+      const [y, m, d] = item.day.split('-').map(Number); const [hh, mm] = rt.defaultTime.split(':').map(Number);
+      post = await posts.create({ status: 'draft', topic: item.topic, brief: item.brief, refs: item.refs || [], html: gen.html, banner: gen.banner, buttons: gen.buttons, scheduled_at: zonedToUtc(y, m, d, hh, mm, rt.tz).toISOString(), admin_chat_id: req.user.id });
+    } catch (e) {
+      await plan.update(item.id, { status: 'failed' }).catch(() => {});
+      throw e;
+    }
     await plan.update(item.id, { status: 'made', post_id: post.id });
     let sentToChat = true;
     try {
@@ -186,12 +196,19 @@ app.post('/api/webhook', async (req, res, next) => {
   app.delete('/api/plan/:id', wrap(async (req, res) => { await plan.remove(req.params.id); res.json({ ok: true }); }));
 
   /* настройки */
+  const HHMM = /^([01]?\d|2[0-3]):[0-5]\d$/;
   app.put('/api/settings', wrap(async (req, res) => {
     const b = req.body || {};
     if (b.channel != null) await setSetting('channel', String(b.channel).trim());
     if (b.tz) { try { new Intl.DateTimeFormat('ru', { timeZone: b.tz }); } catch { throw new Error('Неизвестный часовой пояс'); } await setSetting('tz', b.tz); }
-    if (b.defaultTime && /^\d{1,2}:\d{2}$/.test(b.defaultTime)) await setSetting('default_time', b.defaultTime);
-    if (b.dailyTime && /^([01]?\d|2[0-3]):[0-5]\d$/.test(b.dailyTime)) await setSetting('daily_time', b.dailyTime.padStart(5, '0'));
+    if (b.defaultTime != null && b.defaultTime !== '') {
+      if (!HHMM.test(b.defaultTime)) throw new Error('Время по умолчанию: формат ЧЧ:ММ');
+      await setSetting('default_time', b.defaultTime.padStart(5, '0'));
+    }
+    if (b.dailyTime != null && b.dailyTime !== '') {
+      if (!HHMM.test(b.dailyTime)) throw new Error('Время авто-поста: формат ЧЧ:ММ');
+      await setSetting('daily_time', b.dailyTime.padStart(5, '0'));
+    }
     if (b.dailyEnabled != null) await setSetting('daily_enabled', !!b.dailyEnabled);
     if (b.customEmoji != null) await setSetting('custom_emoji', !!b.customEmoji);
     if (b.stylePrompt != null) await setSetting('style_prompt', String(b.stylePrompt));
