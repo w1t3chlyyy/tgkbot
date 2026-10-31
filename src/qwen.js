@@ -14,9 +14,11 @@ async function call(messages, { temperature, maxTokens }) {
 
 export async function chatJSON(messages, { temperature = 0.7, maxTokens = 1800 } = {}) {
   let content;
+  const t0 = Date.now();
   try { content = await call(messages, { temperature, maxTokens }); }
   catch (e) {
-    if (!(e.status === 429 || e.status >= 500)) throw e;
+    // повторяем только если ошибка пришла быстро: иначе два захода не влезут в 60 с функции
+    if (!(e.status === 429 || e.status >= 500) || Date.now() - t0 > 10_000) throw e;
     await new Promise((r) => setTimeout(r, 1000)); // один повтор при перегрузке API
     content = await call(messages, { temperature, maxTokens });
   }
