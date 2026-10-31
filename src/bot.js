@@ -53,10 +53,15 @@ export function createBot() {
     const chatId = ctx.chat.id;
     const [topic, ...rest] = text.trim().split('\n');
     const wait = await ctx.reply('⏳ Пишу пост и рисую баннер…');
-    const gen = await generatePost({ topic: topic.trim(), brief: rest.join('\n').trim() });
-    const post = await posts.create({ status: 'draft', topic: topic.trim().slice(0, 200), brief: rest.join('\n').trim(), html: gen.html, banner: gen.banner, buttons: gen.buttons, admin_chat_id: chatId });
-    await ctx.api.deleteMessage(chatId, wait.message_id).catch(() => {});
-    return showDraft(ctx.api, chatId, post.id);
+    try {
+      const gen = await generatePost({ topic: topic.trim(), brief: rest.join('\n').trim() });
+      const post = await posts.create({ status: 'draft', topic: topic.trim().slice(0, 200), brief: rest.join('\n').trim(), html: gen.html, banner: gen.banner, buttons: gen.buttons, admin_chat_id: chatId });
+      await ctx.api.deleteMessage(chatId, wait.message_id).catch(() => {});
+      return showDraft(ctx.api, chatId, post.id);
+    } catch (e) {
+      await ctx.api.deleteMessage(chatId, wait.message_id).catch(() => {});
+      throw e;
+    }
   }
 
   async function importPlan(ctx, text) {
@@ -179,8 +184,9 @@ export function createBot() {
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
     if (st?.mode !== 'plan_pending') return ctx.reply('Не нашёл текст плана. Пришли его ещё раз.');
     await clearState(chatId);
+    const fake = { chat: { id: chatId }, api: ctx.api, reply: (t, o) => ctx.api.sendMessage(chatId, t, o) };
     try {
-      return ctx.match[1] === 'yes' ? await importPlan({ ...ctx, chat: { id: chatId }, api: ctx.api, reply: (t, o) => ctx.api.sendMessage(chatId, t, o) }, st.text) : await newFromText({ chat: { id: chatId }, api: ctx.api, reply: (t, o) => ctx.api.sendMessage(chatId, t, o) }, st.text);
+      return ctx.match[1] === 'yes' ? await importPlan(fake, st.text) : await newFromText(fake, st.text);
     } catch (e) { return ctx.api.sendMessage(chatId, '⚠️ ' + e.message); }
   });
 
@@ -197,14 +203,23 @@ export function createBot() {
 
       if (post.status === 'published' && act !== 'back') return ctx.answerCallbackQuery({ text: 'Пост уже опубликован' });
       if (post.status === 'publishing') return ctx.answerCallbackQuery({ text: 'Публикуется…' });
+      if (post.status === 'cancelled') return ctx.answerCallbackQuery({ text: 'Пост убран. Создай новый.', show_alert: true });
 
       switch (act) {
         case 'pub': {
+          const claimed = await posts.claimPublish(id); // атомарно: двойной тап не даст дубль
+          if (!claimed) return ctx.answerCallbackQuery({ text: 'Уже публикуется или опубликован' });
           await ctx.answerCallbackQuery({ text: 'Публикую…' });
-          post = await publishPost(ctx.api, post);
+          try {
+            post = await publishPost(ctx.api, claimed);
+          } catch (e) {
+            await posts.update(id, { status: 'failed', error: e.message.slice(0, 500) });
+            return ctx.api.sendMessage(chatId, `⚠️ Не удалось опубликовать пост #${id}: ${e.message}\nМожно нажать «Опубликовать сейчас» ещё раз.`).catch(() => {});
+          }
           return finish(`✅ <b>Пост #${id} опубликован</b>${post.channel_link ? `\n${post.channel_link}` : ''}`);
         }
         case 'plan': {
+          if (!post.scheduled_at || new Date(post.scheduled_at) <= new Date()) return ctx.answerCallbackQuery({ text: 'Время уже прошло. Выбери «Другое время».', show_alert: true });
           post = await posts.update(id, { status: 'scheduled' });
           await ctx.answerCallbackQuery({ text: 'Запланировано' });
           await finish(controlText(post, rt, '✅ Одобрено, выйдет автоматически.'));
@@ -212,6 +227,7 @@ export function createBot() {
         }
         case 't': {
           const when = new Date(Number(arg) * 1000);
+          if (!(when > new Date())) return ctx.answerCallbackQuery({ text: 'Это время уже прошло, выбери другое.', show_alert: true });
           post = await posts.update(id, { status: 'scheduled', scheduled_at: when.toISOString() });
           await ctx.answerCallbackQuery({ text: 'Запланировано' });
           await finish(controlText(post, rt, '✅ Одобрено, выйдет автоматически.'));
@@ -294,10 +310,11 @@ export function createBot() {
       if (st?.mode === 'edit') {
         await clearState(chatId);
         const wait = await ctx.reply('⏳ Вношу правки…');
-        const post = await posts.get(st.postId);
-        const upd = await revisePost(post, text);
-        await posts.update(st.postId, { html: upd.html, banner: upd.banner, buttons: upd.buttons, history: [...(post.history || []), text].slice(-20) });
-        await ctx.api.deleteMessage(chatId, wait.message_id).catch(() => {});
+        try {
+          const post = await posts.get(st.postId);
+          const upd = await revisePost(post, text);
+          await posts.update(st.postId, { html: upd.html, banner: upd.banner, buttons: upd.buttons, history: [...(post.history || []), text].slice(-20) });
+        } finally { await ctx.api.deleteMessage(chatId, wait.message_id).catch(() => {}); }
         return showDraft(ctx.api, chatId, st.postId);
       }
       if (looksLikePlan(text)) {
