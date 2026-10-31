@@ -9,7 +9,11 @@ const form = { topic: '', brief: '', refs: [], layout: '', object: '', word: '',
 
 async function api(path, { method = 'GET', body, blob } = {}) {
   const r = await fetch('/api' + path, { method, headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg?.initData || '' }, body: body ? JSON.stringify(body) : undefined });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    const hint = r.status === 504 ? ' (сервер не успел ответить за 60 с: обычно Qwen отвечает слишком долго)' : r.status >= 500 ? ' (ошибка сервера, смотри Vercel → Logs)' : '';
+    throw new Error(j.error || `Ошибка ${r.status}${hint}`);
+  }
   return blob ? r.blob() : r.json();
 }
 let tt; function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'show' + (err ? ' err' : ''); clearTimeout(tt); tt = setTimeout(() => (t.className = ''), err ? 10000 : 2800); }
