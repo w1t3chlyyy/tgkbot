@@ -26,17 +26,27 @@ export function fmt(date, tz) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: tz, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(date));
 }
 
+const okTime = (h, mi) => +h >= 0 && +h <= 23 && +mi >= 0 && +mi <= 59;
+
 /** «завтра 18:00», «сегодня 21.30», «30.10 12:00», «2026-11-02 09:15», «18:00» → Date | null */
 export function parseWhen(text, tz, now = new Date()) {
   const s = text.toLowerCase().trim();
   const n = nowIn(tz, now);
   let m;
-  if ((m = s.match(/(\d{4})-(\d{2})-(\d{2})[ t]+(\d{1,2})[:.](\d{2})/))) return zonedToUtc(+m[1], +m[2], +m[3], +m[4], +m[5], tz);
+  if ((m = s.match(/(\d{4})-(\d{2})-(\d{2})[ t]+(\d{1,2})[:.](\d{2})/))) {
+    if (!okTime(m[4], m[5]) || +m[2] < 1 || +m[2] > 12 || +m[3] < 1 || +m[3] > 31) return null;
+    return zonedToUtc(+m[1], +m[2], +m[3], +m[4], +m[5], tz);
+  }
   if ((m = s.match(/(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\s+(\d{1,2})[:.](\d{2})/))) {
+    if (!okTime(m[4], m[5]) || +m[2] < 1 || +m[2] > 12 || +m[1] < 1 || +m[1] > 31) return null;
     let y = m[3] ? +m[3] : n.y; if (y < 100) y += 2000;
-    return zonedToUtc(y, +m[2], +m[1], +m[4], +m[5], tz);
+    let when = zonedToUtc(y, +m[2], +m[1], +m[4], +m[5], tz);
+    // «05.01» в декабре — это январь следующего года (но недавнее прошлое не сдвигаем: пусть бот скажет «время прошло»)
+    if (!m[3] && when.getTime() < now.getTime() - 180 * 86400_000) when = zonedToUtc(y + 1, +m[2], +m[1], +m[4], +m[5], tz);
+    return when;
   }
   if ((m = s.match(/(\d{1,2})[:.](\d{2})/))) {
+    if (!okTime(m[1], m[2])) return null;
     const off = /послезавтра/.test(s) ? 2 : /завтра/.test(s) ? 1 : 0;
     const dd = addDays(n.y, n.m, n.d, off);
     let when = zonedToUtc(dd.y, dd.m, dd.d, +m[1], +m[2], tz);
